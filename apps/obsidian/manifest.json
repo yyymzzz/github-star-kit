@@ -6,5 +6,6 @@
   "description": "AI-powered intelligence for your GitHub stars: sync to vault, semantic search, weekly digest as daily notes.",
   "author": "yyymzzz",
   "authorUrl": "https://github.com/yyymzzz",
+  "main": "main.js",
   "isDesktopOnly": false
 }

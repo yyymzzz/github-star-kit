@@ -1,18 +1,14 @@
-import { useEffect, useState } from 'react';
-
 /**
  * Day 1 popup placeholder.
  *
  * Day 5 contract: render top-10 most recently starred repos fetched from GitHub API
  * using a user-provided PAT stored in chrome.storage.local.
+ *
+ * Style note: inline styles are intentional for Day 1 (zero build deps). Day 5
+ * migrates to Tailwind classes once @starkit/ui ships its first components.
  */
 export function App(): JSX.Element {
-  const [now, setNow] = useState<string>(() => new Date().toISOString());
-
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(new Date().toISOString()), 1000);
-    return () => window.clearInterval(id);
-  }, []);
+  const buildAt = new Date().toISOString();
 
   return (
     <main
@@ -50,7 +46,7 @@ export function App(): JSX.Element {
       </section>
 
       <footer style={{ marginTop: 'auto', fontSize: '11px', opacity: 0.5 }}>
-        Build alive · {now}
+        Built at {buildAt}
       </footer>
     </main>
   );

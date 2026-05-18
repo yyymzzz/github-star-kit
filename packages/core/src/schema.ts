@@ -5,10 +5,18 @@
 import { z } from 'zod';
 
 export const StarredRepoSchema = z.object({
+  /** Schema version for forward-compatible migrations. Bump when changing required fields. */
+  schemaVersion: z.literal(1).default(1),
   /** GitHub repo id (numeric, stable across renames). Primary key. */
   id: z.number().int().positive(),
   /** `owner/repo` form. */
   fullName: z.string().min(3),
+  /** Canonical GitHub page (https://github.com/owner/repo). */
+  htmlUrl: z.string().url(),
+  /** Owner login (denormalized for cheap filtering by author). */
+  ownerLogin: z.string(),
+  /** Owner avatar (UI display, cached locally is fine). */
+  ownerAvatarUrl: z.string().url().nullable().default(null),
   /** Repo description (may be empty). */
   description: z.string().nullable(),
   /** Topics array from GitHub. */
@@ -23,12 +31,22 @@ export const StarredRepoSchema = z.object({
   stargazersCount: z.number().int().nonnegative(),
   /** Default branch name (for tarball deep-index later). */
   defaultBranch: z.string().default('main'),
+  /** Whether the repo is archived (dead) — filter from W4 digest. */
+  archived: z.boolean().default(false),
+  /** Whether the repo is a fork — affects digest ranking. */
+  isFork: z.boolean().default(false),
+  /** User has opted to receive release notifications for this repo (W4). */
+  subscribedToReleases: z.boolean().default(false),
+  /** User has opted to deep-index source code (W5). */
+  deepIndexed: z.boolean().default(false),
   /** Local AI-generated tags (user-editable). */
   aiTags: z.array(z.string()).default([]),
   /** Local AI-generated 1-line summary (cache). */
   aiSummary: z.string().nullable().default(null),
   /** Local user note (free-form). */
   userNote: z.string().nullable().default(null),
+  /** ISO-8601 of last embedding refresh (null = never embedded). */
+  lastEmbeddedAt: z.string().nullable().default(null),
   /** Last time we synced this row. */
   lastSyncedAt: z.string(),
 });
