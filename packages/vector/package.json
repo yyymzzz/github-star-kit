@@ -1,0 +1,37 @@
+{
+  "name": "@starkit/vector",
+  "version": "0.0.1",
+  "description": "Vector index wrapper (sqlite-vec) + hybrid BM25-vector ranking + chunking utilities",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@starkit/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "rimraf": "^6.0.1"
+  },
+  "peerDependencies": {
+    "better-sqlite3": "^11.0.0",
+    "sqlite-vec": "^0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "better-sqlite3": { "optional": true },
+    "sqlite-vec": { "optional": true }
+  }
+}

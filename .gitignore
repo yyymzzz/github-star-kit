@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Browser extension build
+apps/extension/dist/
+apps/extension/build/
+apps/extension/*.zip
+
+# Obsidian plugin build
+apps/obsidian/main.js
+apps/obsidian/styles.css
+apps/obsidian/manifest.json.bak
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Environment & secrets (RED LINE: never commit)
+.env
+.env.local
+.env.*.local
+.env.production
+secrets.json
+*.pem
+*.key
+.credentials.json
+
+# IDE & editor
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Test output
+coverage/
+.nyc_output/
+
+# Vector index & cache (local-first data)
+*.sqlite
+*.sqlite-journal
+*.db
+*.db-journal
+.cache/
+.turbo/
+
+# pnpm
+.pnpm-debug.log

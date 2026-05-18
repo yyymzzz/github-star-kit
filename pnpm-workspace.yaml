@@ -1,0 +1,10 @@
+packages:
+  - 'packages/*'
+  - 'apps/*'
+
+# Postinstall scripts allowlist for native deps (pnpm v10+ format).
+#   - better-sqlite3: sqlite-vec backing store (used by @starkit/vector in Obsidian/Node env)
+#   - esbuild: required by Obsidian plugin build pipeline
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true

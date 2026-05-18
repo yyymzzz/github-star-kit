@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "noEmit": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+    "lib": ["ES2022", "DOM"]
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../packages/ai" },
+    { "path": "../../packages/vector" }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@starkit/obsidian",
+  "version": "0.0.1",
+  "description": "GitHub Star Kit — Obsidian community plugin. Sync stars to vault, semantic search, AI weekly digest as daily notes.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "clean": "rimraf main.js"
+  },
+  "dependencies": {
+    "@starkit/core": "workspace:*",
+    "@starkit/ai": "workspace:*",
+    "@starkit/vector": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "builtin-modules": "^4.0.0",
+    "esbuild": "^0.24.0",
+    "obsidian": "^1.7.0",
+    "tslib": "^2.7.0",
+    "typescript": "^5.6.0",
+    "rimraf": "^6.0.1"
+  }
+}

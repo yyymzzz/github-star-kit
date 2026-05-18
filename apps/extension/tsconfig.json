@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "types": ["chrome", "node"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../packages/ai" },
+    { "path": "../../packages/ui" }
+  ]
+}

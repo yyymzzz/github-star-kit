@@ -1,0 +1,41 @@
+{
+  "name": "@starkit/core",
+  "version": "0.0.1",
+  "description": "GitHub star sync engine + zod schemas + local-first storage primitives",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "import": "./dist/schema.js"
+    },
+    "./github": {
+      "types": "./dist/github/index.d.ts",
+      "import": "./dist/github/index.js"
+    }
+  },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@octokit/core": "^7.0.0",
+    "@octokit/plugin-retry": "^8.0.0",
+    "@octokit/plugin-throttling": "^11.0.0",
+    "@octokit/plugin-paginate-rest": "^14.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "rimraf": "^6.0.1"
+  }
+}

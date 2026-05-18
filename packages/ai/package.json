@@ -1,0 +1,34 @@
+{
+  "name": "@starkit/ai",
+  "version": "0.0.1",
+  "description": "Provider-agnostic AI adapter: chat + embeddings across OpenAI / Anthropic / Voyage / Ollama, with BYOK",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./providers": {
+      "types": "./dist/providers/index.d.ts",
+      "import": "./dist/providers/index.js"
+    }
+  },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@starkit/core": "workspace:*",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "rimraf": "^6.0.1"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "id": "starkit",
+  "name": "GitHub Star Kit",
+  "version": "0.0.1",
+  "minAppVersion": "1.5.0",
+  "description": "AI-powered intelligence for your GitHub stars: sync to vault, semantic search, weekly digest as daily notes.",
+  "author": "yyymzzz",
+  "authorUrl": "https://github.com/yyymzzz",
+  "isDesktopOnly": false
+}

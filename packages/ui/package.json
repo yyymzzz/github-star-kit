@@ -1,0 +1,36 @@
+{
+  "name": "@starkit/ui",
+  "version": "0.0.1",
+  "description": "Shared React + Tailwind components used by extension popup and Obsidian plugin views",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./styles.css": "./dist/styles.css"
+  },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@starkit/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "rimraf": "^6.0.1",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0"
+  },
+  "peerDependencies": {
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0"
+  }
+}
