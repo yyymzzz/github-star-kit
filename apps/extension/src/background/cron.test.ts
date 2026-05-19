@@ -19,6 +19,25 @@ import {
   runScheduledSync,
 } from './cron.js';
 
+/** Minimal chrome.storage.local stand-in for the mutex calls cron.ts makes. */
+class FakeChromeStorage {
+  private readonly map = new Map<string, unknown>();
+  async get(key: string): Promise<Record<string, unknown>> {
+    return this.map.has(key) ? { [key]: this.map.get(key) } : {};
+  }
+  async set(obj: Record<string, unknown>): Promise<void> {
+    for (const [k, v] of Object.entries(obj)) this.map.set(k, v);
+  }
+  async remove(key: string): Promise<void> {
+    this.map.delete(key);
+  }
+  raw(): Map<string, unknown> {
+    return this.map;
+  }
+}
+
+let chromeStorage: FakeChromeStorage;
+
 /**
  * Each test gets a fresh DB name to dodge cross-test fake-indexeddb state
  * + the deleteDatabase-blocked-on-open-connection hang. Cheaper than
@@ -37,6 +56,8 @@ beforeEach(() => {
   dbCounter += 1;
   currentDbName = `starkit-test-${dbCounter}-${Date.now()}`;
   __resetDbPromiseForTest(currentDbName);
+  chromeStorage = new FakeChromeStorage();
+  vi.stubGlobal('chrome', { storage: { local: chromeStorage } });
 });
 
 afterEach(() => {
@@ -113,6 +134,61 @@ describe('runScheduledSync — happy path', () => {
     expect(String(url)).toContain('/user/starred');
     const h = new Headers((init as RequestInit).headers as HeadersInit);
     expect(h.get('authorization')).toBe('token ghp_test');
+  });
+});
+
+describe('runScheduledSync — lock contention', () => {
+  it('skips with reason="locked" when another owner holds the sync lock', async () => {
+    await seedPat('ghp_test');
+    __resetDbPromiseForTest(currentDbName);
+    // Seed an active lock by another owner
+    await chromeStorage.set({
+      'sync.lock': {
+        acquiredAt: new Date().toISOString(),
+        ownerId: 'popup-manual',
+      },
+    });
+
+    const r = await runScheduledSync();
+    expect(r.skipped).toBe(true);
+    expect(r.reason).toBe('locked');
+    // Lock must still belong to the original owner (we didn't clobber)
+    const stored = chromeStorage.raw().get('sync.lock') as { ownerId: string };
+    expect(stored.ownerId).toBe('popup-manual');
+  });
+
+  it('releases the lock after a successful sync', async () => {
+    await seedPat('ghp_test');
+    __resetDbPromiseForTest(currentDbName);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { 'content-type': 'application/json', etag: '"e1"' },
+        })
+      )
+    );
+
+    const r = await runScheduledSync();
+    expect(r.skipped).toBe(false);
+    expect(chromeStorage.raw().has('sync.lock')).toBe(false);
+  });
+
+  it('releases the lock even when sync throws', async () => {
+    await seedPat('ghp_test');
+    __resetDbPromiseForTest(currentDbName);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: 'Bad credentials' }), {
+          status: 401,
+        })
+      )
+    );
+
+    await expect(runScheduledSync()).rejects.toMatchObject({ kind: 'auth' });
+    expect(chromeStorage.raw().has('sync.lock')).toBe(false);
   });
 });
 

@@ -23,7 +23,11 @@ import {
   type StarredRepo,
   type SyncCursor,
 } from '@starkit/core';
+import { releaseSyncLock, tryAcquireSyncLock } from '../shared/lock.js';
 import { KV_KEY_PAT, getStores } from './db.js';
+
+/** Identifier the popup uses when grabbing the cross-context sync lock. */
+const POPUP_OWNER_ID = 'popup-manual';
 
 type SyncState = 'idle' | 'syncing';
 
@@ -101,6 +105,17 @@ export function App(): JSX.Element {
     if (!pat) return;
     setSyncState('syncing');
     setError(null);
+
+    // Cross-context mutex — if the service-worker cron is mid-sync we'd
+    // otherwise burn double GitHub quota. Lock auto-expires after 2 min
+    // on stale to recover from evicted-worker scenarios.
+    const lockAcquired = await tryAcquireSyncLock(POPUP_OWNER_ID);
+    if (!lockAcquired) {
+      setError('Another sync is running in the background. Try again in a moment.');
+      setSyncState('idle');
+      return;
+    }
+
     try {
       const { starStore, cursorStore } = await getStores();
       const client = createGithubClient({
@@ -120,6 +135,7 @@ export function App(): JSX.Element {
     } catch (err) {
       setError(formatError(err));
     } finally {
+      await releaseSyncLock(POPUP_OWNER_ID);
       setSyncState('idle');
     }
   }, [pat]);

@@ -24,8 +24,12 @@ import {
   type SyncWithStoreResult,
 } from '@starkit/core';
 import { KV_KEY_PAT } from '../shared/keys.js';
+import { releaseSyncLock, tryAcquireSyncLock } from '../shared/lock.js';
 
-export type ScheduledSyncSkipReason = 'no_pat';
+/** Owner id the cron path identifies itself by when acquiring the lock. */
+const CRON_OWNER_ID = 'service-worker-cron';
+
+export type ScheduledSyncSkipReason = 'no_pat' | 'locked';
 
 export interface ScheduledSyncResult {
   readonly skipped: boolean;
@@ -79,30 +83,43 @@ export async function runScheduledSync(
     return { skipped: true, reason: 'no_pat' };
   }
 
-  const starStore = new IndexedDBStarStore(db);
-  const cursorStore = new IndexedDBCursorStore(db);
-  const client = createGithubClient({
-    token: pat,
-    userAgent: '@starkit/extension(cron)',
-  });
-
-  const syncOpts: { signal?: AbortSignal } = {};
-  if (opts.signal !== undefined) syncOpts.signal = opts.signal;
+  // Advisory cross-context lock — if the popup is already mid-sync, we
+  // skip cleanly so the user doesn't get charged double GitHub quota for
+  // the same data. The lock auto-expires after 2 minutes (see
+  // shared/lock.ts) in case a service worker was evicted mid-sync.
+  const lockAcquired = await tryAcquireSyncLock(CRON_OWNER_ID);
+  if (!lockAcquired) {
+    return { skipped: true, reason: 'locked' };
+  }
 
   try {
-    const result = await syncStarsWithStore(
-      client,
-      { starStore, cursorStore },
-      syncOpts
-    );
-    return { skipped: false, result };
-  } catch (err) {
-    // Re-throw GithubError unchanged so the caller can inspect .kind;
-    // wrap anything else for traceability.
-    if (err instanceof GithubError) throw err;
-    throw err instanceof Error
-      ? err
-      : new Error(`Unknown cron failure: ${String(err)}`);
+    const starStore = new IndexedDBStarStore(db);
+    const cursorStore = new IndexedDBCursorStore(db);
+    const client = createGithubClient({
+      token: pat,
+      userAgent: '@starkit/extension(cron)',
+    });
+
+    const syncOpts: { signal?: AbortSignal } = {};
+    if (opts.signal !== undefined) syncOpts.signal = opts.signal;
+
+    try {
+      const result = await syncStarsWithStore(
+        client,
+        { starStore, cursorStore },
+        syncOpts
+      );
+      return { skipped: false, result };
+    } catch (err) {
+      // Re-throw GithubError unchanged so the caller can inspect .kind;
+      // wrap anything else for traceability.
+      if (err instanceof GithubError) throw err;
+      throw err instanceof Error
+        ? err
+        : new Error(`Unknown cron failure: ${String(err)}`);
+    }
+  } finally {
+    await releaseSyncLock(CRON_OWNER_ID);
   }
 }
 
@@ -114,7 +131,8 @@ export function formatCronOutcome(outcome: ScheduledSyncResult): string {
   if (outcome.skipped) {
     return `cron skipped (${outcome.reason ?? 'unknown'})`;
   }
-  const r = outcome.result!;
+  const r = outcome.result;
+  if (!r) return 'cron skipped (no result)';
   if (r.notModified) {
     return `cron 304 not modified · ${r.knownCountAfter} stars`;
   }
