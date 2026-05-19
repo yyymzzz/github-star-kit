@@ -43,5 +43,7 @@ export async function getStores(): Promise<PopupStores> {
   };
 }
 
-/** kv key under which we persist the user's GitHub PAT. */
-export const KV_KEY_PAT = 'github.pat';
+// PAT kv key now lives in ../shared/keys.ts so the service worker can
+// reference it without importing popup-specific React code. Re-export keeps
+// existing popup imports working unchanged.
+export { KV_KEY_PAT } from '../shared/keys.js';

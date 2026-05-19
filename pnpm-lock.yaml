@@ -72,6 +72,9 @@ importers:
       autoprefixer:
         specifier: ^10.4.0
         version: 10.5.0(postcss@8.5.14)
+      fake-indexeddb:
+        specifier: ^6.0.0
+        version: 6.2.5
       postcss:
         specifier: ^8.4.0
         version: 8.5.14
