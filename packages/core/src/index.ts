@@ -25,3 +25,16 @@ export type {
   GithubErrorKind,
   GithubErrorContext,
 } from './github/index.js';
+
+export {
+  KVStoreMemory,
+  StarStoreMemory,
+  CursorStoreMemory,
+} from './storage/index.js';
+export type {
+  KVStore,
+  StarStore,
+  StarStoreListOptions,
+  StarStoreUpsertResult,
+  CursorStore,
+} from './storage/index.js';
