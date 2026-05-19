@@ -96,6 +96,20 @@ describe('AnthropicProvider.chat', () => {
       kind: 'parse',
     });
   });
+
+  // Regression for audit bug A: max_tokens hit at turn 0 returns an empty text
+  // block; that is a valid response, not a parse error.
+  it('accepts empty text from max_tokens cutoff (regression: bug A)', async () => {
+    nextJson(fm, {
+      content: [{ type: 'text', text: '' }],
+      model: 'claude-sonnet-4-6',
+      stop_reason: 'max_tokens',
+      usage: { input_tokens: 5, output_tokens: 0 },
+    });
+    const res = await new AnthropicProvider(config).chat({ user: 'x', maxTokens: 1 });
+    expect(res.text).toBe('');
+    expect(res.outputTokens).toBe(0);
+  });
 });
 
 describe('AnthropicProvider.embed', () => {

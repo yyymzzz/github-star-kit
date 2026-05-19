@@ -69,7 +69,7 @@ export abstract class BaseProvider implements AIProvider {
           ...(req.model !== undefined ? { model: req.model } : {}),
         });
       }
-      const data: unknown = await res.json();
+      const data = await this.readJsonOrThrow(res, req.model);
       return this.parseChatResponse(data, req);
     } catch (err) {
       if (err instanceof AIError) throw err;
@@ -106,7 +106,7 @@ export abstract class BaseProvider implements AIProvider {
           ...(req.model !== undefined ? { model: req.model } : {}),
         });
       }
-      const data: unknown = await res.json();
+      const data = await this.readJsonOrThrow(res, req.model);
       return this.parseEmbedResponse(data, req);
     } catch (err) {
       if (err instanceof AIError) throw err;
@@ -116,6 +116,27 @@ export abstract class BaseProvider implements AIProvider {
       });
     } finally {
       clear();
+    }
+  }
+
+  /**
+   * Read `res.json()` and re-wrap any SyntaxError as AIError(parse). Without
+   * this, a provider returning a 200 with an HTML error page (or empty body)
+   * would surface as kind=unknown, hiding the real diagnosis from callers.
+   */
+  private async readJsonOrThrow(res: Response, model: string | undefined): Promise<unknown> {
+    try {
+      return (await res.json()) as unknown;
+    } catch (err) {
+      throw new AIError(
+        'parse',
+        `Provider returned non-JSON response: ${err instanceof Error ? err.message : String(err)}`,
+        {
+          provider: this.name,
+          ...(model !== undefined ? { model } : {}),
+        },
+        err
+      );
     }
   }
 

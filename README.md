@@ -2,7 +2,7 @@
 
 > AI-powered GitHub Star intelligence: never forget what you starred and why.
 
-**Status**: 🚧 W1 Day 1 — early scaffolding. Not yet usable.
+**Status**: 🚧 W1 Day 2 — AI provider layer landed (4 providers + 43 contract tests). GitHub sync engine is next (Day 3). Not yet usable end-to-end.
 
 ## What this is
 

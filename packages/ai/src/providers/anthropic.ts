@@ -93,16 +93,19 @@ export class AnthropicProvider extends BaseProvider {
         ...(req.model !== undefined ? { model: req.model } : {}),
       });
     }
-    const text = d.content
-      .filter((b) => b?.type === 'text' && typeof b.text === 'string')
-      .map((b) => b.text as string)
-      .join('');
-    if (text.length === 0) {
+    // Filter to text blocks BEFORE joining. An empty string is a valid response
+    // (e.g. max_tokens hit at turn 0); only the absence of any text block is
+    // a parse failure.
+    const textBlocks = d.content.filter(
+      (b) => b?.type === 'text' && typeof b.text === 'string'
+    );
+    if (textBlocks.length === 0) {
       throw new AIError('parse', 'Anthropic response has no text content blocks', {
         provider: 'anthropic',
         ...(req.model !== undefined ? { model: req.model } : {}),
       });
     }
+    const text = textBlocks.map((b) => b.text as string).join('');
     return {
       text,
       model: typeof d.model === 'string' ? d.model : (req.model ?? this.config.chatModel ?? DEFAULT_CHAT_MODEL),

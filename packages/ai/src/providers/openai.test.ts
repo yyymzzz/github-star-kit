@@ -106,6 +106,39 @@ describe('OpenAIProvider.chat', () => {
     });
   });
 
+  // Regression for audit bug B: non-JSON body (HTML error page, empty body,
+  // wrong content-type) must surface as kind=parse, not kind=unknown.
+  it('maps non-JSON 200 body → AIError kind=parse (regression: bug B)', async () => {
+    fm.fetchMock.mockResolvedValueOnce(
+      new Response('<html>maintenance</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      })
+    );
+    await expect(new OpenAIProvider(config).chat({ user: 'x' })).rejects.toMatchObject({
+      kind: 'parse',
+      context: { provider: 'openai' },
+    });
+  });
+
+  it('caller AbortSignal triggers AIError kind=timeout', async () => {
+    fm.fetchMock.mockImplementationOnce(
+      (_url: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const sig = init?.signal;
+          if (!sig) return;
+          if (sig.aborted) return reject(sig.reason ?? new DOMException('Aborted', 'AbortError'));
+          sig.addEventListener('abort', () =>
+            reject(sig.reason ?? new DOMException('Aborted', 'AbortError'))
+          );
+        })
+    );
+    const controller = new AbortController();
+    const promise = new OpenAIProvider(config).chat({ user: 'x', signal: controller.signal });
+    queueMicrotask(() => controller.abort());
+    await expect(promise).rejects.toMatchObject({ kind: 'timeout' });
+  });
+
   it('honors baseUrl override and dedupes /v1', async () => {
     nextJson(fm, {
       choices: [{ message: { content: 'ok' } }],

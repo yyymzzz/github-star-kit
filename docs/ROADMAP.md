@@ -2,7 +2,7 @@
 
 > 6-week MVP. Each week has a verifiable Friday demo gate.
 
-## Status: W1 Day 1 ✅
+## Status: W1 Day 2 ✅ (provider layer)
 
 | Week | Theme | Demo gate (verifiable) |
 |---|---|---|
@@ -18,7 +18,7 @@
 | Day | Deliverable | Status |
 |---|---|---|
 | **1** | Monorepo scaffold + type contracts + pnpm install + typecheck pass | ✅ done |
-| **2** | `packages/ai/` rewrite: provider adapter (OpenAI/Anthropic/Voyage/Ollama) | pending |
+| **2** | `packages/ai/` rewrite: provider adapter (OpenAI/Anthropic/Voyage/Ollama) | ✅ done (Stage 1+2) — `openai-compatible` deferred to Stage 3 |
 | **3** | `packages/core/` rewrite: GitHub sync engine, local-first, ETag-aware | pending |
 | **4** | MV3 extension architecture + popup skeleton + content script entry | pending |
 | **5** | Popup → 10 starred repos via real GitHub API (demo gate) | pending |
