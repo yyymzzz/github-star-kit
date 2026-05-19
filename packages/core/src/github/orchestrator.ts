@@ -39,7 +39,13 @@ export interface SyncWithStoreResult {
   /** From StarStore.upsertMany. Zero on notModified. */
   readonly inserted: number;
   readonly updated: number;
-  /** Store count AFTER the upsert. Useful for the "you have N stars" UI. */
+  /**
+   * Rows we deleted from starStore because GitHub no longer lists them
+   * (user un-starred). Zero on notModified or cold sync. The UI can show
+   * "removed N un-starred repos" alongside inserted/updated.
+   */
+  readonly deleted: number;
+  /** Store count AFTER the upsert + cleanup. */
   readonly knownCountAfter: number;
 }
 
@@ -47,9 +53,19 @@ export interface SyncWithStoreResult {
  * Run one sync cycle:
  *   1. Read prior cursor (etag, since)
  *   2. Fetch stars from GitHub (sends If-None-Match)
- *   3. If 304: bump cursor.updatedAt and bail
- *   4. Otherwise: upsert into starStore, then persist a fresh cursor with
- *      the newest etag and the max starredAt we've seen.
+ *   3. If 304: bump cursor.updatedAt and bail (no row changes possible —
+ *      GitHub asserts the list is byte-identical)
+ *   4. Otherwise:
+ *      a. upsert fetched rows into starStore
+ *      b. delete rows in starStore whose id is NOT in the fetched set —
+ *         GitHub returns the FULL starred list (we don't use a since
+ *         cutoff yet), so any absent id means the user un-starred it.
+ *         This keeps the store as a faithful mirror of GitHub state.
+ *      c. persist a fresh cursor (etag + max starredAt + count + ts)
+ *
+ * Mirror semantics: when a user un-stars a repo locally enriched with
+ * userNote / aiTags, those fields are lost. v1 trade-off — soft-delete +
+ * `unstarredAt` filter is a W2 candidate if users complain.
  *
  * Errors from syncStars (GithubError) bubble unchanged. We don't catch them
  * here because the caller's UI is the right place to decide retry vs surface.
@@ -87,11 +103,31 @@ export async function syncStarsWithStore(
       pageCount: syncResult.pageCount,
       inserted: 0,
       updated: 0,
+      deleted: 0,
       knownCountAfter: await starStore.count(),
     };
   }
 
   const upsertResult = await starStore.upsertMany(syncResult.stars);
+
+  // Mirror cleanup: any row already in the store whose id is NOT in the
+  // freshly-fetched set means the user un-starred it. Delete those rows
+  // so the store stays a faithful mirror of GitHub.
+  //
+  // Performance note: we list() with no limit so we get the full ID set.
+  // At v1 row counts (≤ a few thousand) this is fine. When ranges grow,
+  // a `listIds()` shortcut on StarStore that doesn't materialize values
+  // is the obvious optimization (deferred to W2 alongside the starred_at
+  // cursor path which would also touch this codepath).
+  const fetchedIds = new Set<number>(syncResult.stars.map((s) => s.id));
+  const existing = await starStore.list({ limit: Number.POSITIVE_INFINITY });
+  let deleted = 0;
+  for (const row of existing) {
+    if (!fetchedIds.has(row.id)) {
+      await starStore.delete(row.id);
+      deleted += 1;
+    }
+  }
   const knownCountAfter = await starStore.count();
 
   // Track the high-water mark of starred_at across this sync + prior cursor,
@@ -118,6 +154,7 @@ export async function syncStarsWithStore(
     pageCount: syncResult.pageCount,
     inserted: upsertResult.inserted,
     updated: upsertResult.updated,
+    deleted,
     knownCountAfter,
   };
 }
