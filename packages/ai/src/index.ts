@@ -1,8 +1,12 @@
 /**
  * @starkit/ai — Provider-agnostic AI adapter.
  *
- * Day 1 status: type contracts only. Provider implementations land W1 Day 2.
- * BYOK design — no API keys ever live in this package; they're injected per-call.
+ * W1 Day 2 status:
+ *   Stage 1: provider base + URL/timeout utils + error taxonomy ✅
+ *   Stage 2: 4 concrete providers (OpenAI / Anthropic / Voyage / Ollama) ✅
+ *
+ * BYOK design — API keys are passed per-instance in ProviderConfig; this
+ * package never reads them from env or persists them.
  */
 
 export const VERSION = '0.0.1';
@@ -14,4 +18,17 @@ export type {
   EmbedRequest,
   EmbedResponse,
   ProviderConfig,
+  ProviderName,
 } from './types.js';
+
+export { AIError } from './errors.js';
+export type { AIErrorKind, AIErrorContext } from './errors.js';
+
+export {
+  createProvider,
+  BaseProvider,
+  OpenAIProvider,
+  AnthropicProvider,
+  VoyageProvider,
+  OllamaProvider,
+} from './providers/index.js';

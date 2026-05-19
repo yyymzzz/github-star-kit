@@ -46,6 +46,13 @@ export abstract class BaseProvider implements AIProvider {
   // ─── Public surface ──────────────────────────────────────────────
 
   async chat(req: ChatRequest): Promise<ChatResponse> {
+    if (!this.supportsChat) {
+      throw new AIError(
+        'bad_request',
+        `Provider '${this.name}' does not support chat completion`,
+        { provider: this.name }
+      );
+    }
     const { signal, clear } = withTimeout(this.chatTimeoutMs, req.signal);
     try {
       const body = this.buildChatBody(req);
@@ -114,7 +121,12 @@ export abstract class BaseProvider implements AIProvider {
 
   // ─── Subclass hooks ──────────────────────────────────────────────
 
-  /** Whether this provider can do embeddings. Default true; override for chat-only providers. */
+  /** Whether this provider can do chat completion. Default true; override for embed-only providers (e.g. Voyage). */
+  protected get supportsChat(): boolean {
+    return true;
+  }
+
+  /** Whether this provider can do embeddings. Default true; override for chat-only providers (e.g. Anthropic). */
   protected get supportsEmbedding(): boolean {
     return true;
   }
