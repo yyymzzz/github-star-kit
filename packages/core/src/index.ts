@@ -14,6 +14,7 @@ export { StarredRepoSchema, SyncCursorSchema, StarTagSchema } from './schema.js'
 export {
   createGithubClient,
   syncStars,
+  syncStarsWithStore,
   transformStarred,
   GithubError,
 } from './github/index.js';
@@ -22,6 +23,9 @@ export type {
   CreateGithubClientOptions,
   SyncStarsOptions,
   SyncStarsResult,
+  SyncWithStoreOptions,
+  SyncWithStoreResult,
+  SyncWithStoreStores,
   GithubErrorKind,
   GithubErrorContext,
 } from './github/index.js';
@@ -30,6 +34,10 @@ export {
   KVStoreMemory,
   StarStoreMemory,
   CursorStoreMemory,
+  openStarKitDb,
+  IndexedDBStarStore,
+  IndexedDBKVStore,
+  IndexedDBCursorStore,
 } from './storage/index.js';
 export type {
   KVStore,
@@ -37,4 +45,6 @@ export type {
   StarStoreListOptions,
   StarStoreUpsertResult,
   CursorStore,
+  StarKitDB,
+  StarKitDBSchema,
 } from './storage/index.js';

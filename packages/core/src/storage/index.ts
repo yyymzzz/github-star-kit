@@ -18,3 +18,10 @@ export {
   StarStoreMemory,
   CursorStoreMemory,
 } from './memory.js';
+export {
+  openStarKitDb,
+  IndexedDBStarStore,
+  IndexedDBKVStore,
+  IndexedDBCursorStore,
+} from './idb.js';
+export type { StarKitDB, StarKitDBSchema } from './idb.js';
