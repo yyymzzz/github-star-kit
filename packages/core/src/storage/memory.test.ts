@@ -201,6 +201,7 @@ describe('CursorStoreMemory', () => {
       since: '2026-05-10T00:00:00Z',
       knownCount: 42,
       updatedAt: '2026-05-19T10:00:00Z',
+      lastFullSyncAt: '2026-05-19T09:00:00Z',
     };
     await cursor.set(c);
     expect(await cursor.get()).toEqual(c);

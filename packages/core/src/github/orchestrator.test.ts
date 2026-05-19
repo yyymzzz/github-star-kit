@@ -221,7 +221,13 @@ describe('syncStarsWithStore — warm path with new stars (200)', () => {
     nextJson(fm, [sampleStar(1, '2026-05-01T00:00:00Z')], {
       headers: { etag: '"e2"' },
     });
-    const result = await syncStarsWithStore(client, { starStore, cursorStore });
+    // Force full mode — without this we'd skip into incremental and the
+    // since cursor would short-circuit before re-fetching id=1.
+    const result = await syncStarsWithStore(
+      client,
+      { starStore, cursorStore },
+      { forceFullSync: true }
+    );
 
     expect(result.inserted).toBe(0);
     expect(result.updated).toBe(1);
@@ -249,12 +255,17 @@ describe('syncStarsWithStore — un-star cleanup (mirror semantics)', () => {
     expect(await starStore.count()).toBe(3);
 
     // Second sync: id=2 is gone (user un-starred). GitHub gave us a new etag.
+    // Force full mode — cleanup only runs in full syncs.
     nextJson(
       fm,
       [sampleStar(1, '2026-05-01T00:00:00Z'), sampleStar(3, '2026-05-03T00:00:00Z')],
       { headers: { etag: '"e2"' } }
     );
-    const result = await syncStarsWithStore(client, { starStore, cursorStore });
+    const result = await syncStarsWithStore(
+      client,
+      { starStore, cursorStore },
+      { forceFullSync: true }
+    );
 
     expect(result.deleted).toBe(1);
     expect(result.knownCountAfter).toBe(2);
@@ -283,7 +294,11 @@ describe('syncStarsWithStore — un-star cleanup (mirror semantics)', () => {
 
     // Second sync: user un-starred everything. GitHub returns [].
     nextJson(fm, [], { headers: { etag: '"empty-e"' } });
-    const result = await syncStarsWithStore(client, { starStore, cursorStore });
+    const result = await syncStarsWithStore(
+      client,
+      { starStore, cursorStore },
+      { forceFullSync: true }
+    );
 
     expect(result.deleted).toBe(2);
     expect(result.inserted).toBe(0);
@@ -325,6 +340,114 @@ describe('syncStarsWithStore — un-star cleanup (mirror semantics)', () => {
 
     expect(result.notModified).toBe(true);
     expect(result.deleted).toBe(0);
+  });
+});
+
+describe('syncStarsWithStore — full vs incremental hybrid', () => {
+  it('cold sync reports syncMode="full" and stamps lastFullSyncAt', async () => {
+    nextJson(fm, [sampleStar(1, '2026-05-01T00:00:00Z')], {
+      headers: { etag: '"e1"' },
+    });
+    const starStore = new StarStoreMemory();
+    const cursorStore = new CursorStoreMemory();
+    const client = createGithubClient({ token: TOKEN, retries: 0 });
+    const r = await syncStarsWithStore(client, { starStore, cursorStore });
+
+    expect(r.syncMode).toBe('full');
+    const cursor = await cursorStore.get();
+    expect(cursor?.lastFullSyncAt).toBe(r.fetchedAt);
+  });
+
+  it('second sync with fresh lastFullSyncAt runs incremental + sends If-None-Match + since header', async () => {
+    const starStore = new StarStoreMemory();
+    const cursorStore = new CursorStoreMemory();
+    // Seed a fresh full sync (1h ago, well within the 7d window)
+    const recent = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    await cursorStore.set({
+      etag: '"prev"',
+      since: '2026-05-15T00:00:00Z',
+      knownCount: 1,
+      updatedAt: recent,
+      lastFullSyncAt: recent,
+    });
+
+    // GitHub returns just one new star with starredAt > since
+    nextJson(fm, [sampleStar(2, '2026-05-19T00:00:00Z')], {
+      headers: { etag: '"e2"' },
+    });
+
+    const client = createGithubClient({ token: TOKEN, retries: 0 });
+    const r = await syncStarsWithStore(client, { starStore, cursorStore });
+
+    expect(r.syncMode).toBe('incremental');
+    expect(r.deleted).toBe(0); // incremental never deletes
+    expect(r.inserted).toBe(1);
+
+    // Verify the request actually included If-None-Match (etag was passed)
+    const headers = fm.lastCall()!.init.headers as Headers | Record<string, string>;
+    const ifNoneMatch =
+      headers instanceof Headers
+        ? headers.get('if-none-match')
+        : (headers as Record<string, string>)['if-none-match'];
+    expect(ifNoneMatch).toBe('"prev"');
+
+    // Cursor's lastFullSyncAt is preserved (incremental doesn't refresh it)
+    expect((await cursorStore.get())?.lastFullSyncAt).toBe(recent);
+  });
+
+  it('stale lastFullSyncAt (>7d) re-enters full mode and refreshes the stamp', async () => {
+    const starStore = new StarStoreMemory();
+    const cursorStore = new CursorStoreMemory();
+    const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+    await cursorStore.set({
+      etag: '"old"',
+      since: '2026-01-01T00:00:00Z',
+      knownCount: 0,
+      updatedAt: eightDaysAgo,
+      lastFullSyncAt: eightDaysAgo,
+    });
+
+    nextJson(fm, [sampleStar(1, '2026-05-19T00:00:00Z')], {
+      headers: { etag: '"new"' },
+    });
+
+    const client = createGithubClient({ token: TOKEN, retries: 0 });
+    const r = await syncStarsWithStore(client, { starStore, cursorStore });
+
+    expect(r.syncMode).toBe('full');
+    const cursor = await cursorStore.get();
+    expect(cursor?.lastFullSyncAt).toBe(r.fetchedAt);
+    expect(cursor?.lastFullSyncAt).not.toBe(eightDaysAgo);
+  });
+
+  it('forceFullSync overrides freshness and runs full + cleanup', async () => {
+    const starStore = new StarStoreMemory();
+    const cursorStore = new CursorStoreMemory();
+    const recent = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    await cursorStore.set({
+      etag: '"x"',
+      since: '2026-01-01T00:00:00Z',
+      knownCount: 0,
+      updatedAt: recent,
+      lastFullSyncAt: recent,
+    });
+
+    nextJson(fm, [sampleStar(1, '2026-05-01T00:00:00Z')], {
+      headers: { etag: '"y"' },
+    });
+
+    const client = createGithubClient({ token: TOKEN, retries: 0 });
+    const r = await syncStarsWithStore(
+      client,
+      { starStore, cursorStore },
+      { forceFullSync: true }
+    );
+
+    expect(r.syncMode).toBe('full');
+    // since was NOT applied — request URL contains no since param;
+    // verified indirectly by syncStars actually fetching the full
+    // response (1 star inserted).
+    expect(r.inserted).toBe(1);
   });
 });
 

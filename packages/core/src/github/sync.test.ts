@@ -247,6 +247,57 @@ describe('createGithubClient', () => {
   });
 });
 
+describe('syncStars since cursor short-circuit', () => {
+  it('stops at the first item with starred_at <= since (mid-page)', async () => {
+    nextJson(
+      fm,
+      [
+        sampleStar({ id: 3, starredAt: '2026-05-19T00:00:00Z' }),
+        sampleStar({ id: 2, starredAt: '2026-05-17T00:00:00Z' }),
+        sampleStar({ id: 1, starredAt: '2026-05-15T00:00:00Z' }),
+      ]
+    );
+    const client = createGithubClient({ token: TOKEN, retries: 0 });
+    const result = await syncStars(client, { since: '2026-05-15T00:00:00Z' });
+    expect(result.stars).toHaveLength(2);
+    expect(result.stars.map((s) => s.id)).toEqual([3, 2]);
+  });
+
+  it('does not fetch the next page once since boundary is hit', async () => {
+    nextJson(
+      fm,
+      [
+        sampleStar({ id: 3, starredAt: '2026-05-19T00:00:00Z' }),
+        sampleStar({ id: 2, starredAt: '2026-05-15T00:00:00Z' }),
+      ],
+      { nextLink: 'https://api.github.com/user/starred?page=2' }
+    );
+    // page 2 NOT queued — if we accidentally fetch it, mock returns undefined
+    // and the test will fail loudly.
+    const client = createGithubClient({ token: TOKEN, retries: 0 });
+    const result = await syncStars(client, { since: '2026-05-15T00:00:00Z' });
+    expect(result.stars.map((s) => s.id)).toEqual([3]);
+    expect(fm.calls()).toHaveLength(1);
+  });
+
+  it('fetches normally when since is older than everything', async () => {
+    nextJson(fm, [sampleStar({ id: 1, starredAt: '2026-05-19T00:00:00Z' })]);
+    const client = createGithubClient({ token: TOKEN, retries: 0 });
+    const result = await syncStars(client, { since: '2026-01-01T00:00:00Z' });
+    expect(result.stars).toHaveLength(1);
+  });
+
+  it('treats since == starredAt as "already known" and skips that row', async () => {
+    // GitHub returns DESC, so equal-timestamp row is the boundary. We
+    // already have it locally (last sync ended at this timestamp), so
+    // skip it AND stop paginating.
+    nextJson(fm, [sampleStar({ id: 5, starredAt: '2026-05-15T00:00:00Z' })]);
+    const client = createGithubClient({ token: TOKEN, retries: 0 });
+    const result = await syncStars(client, { since: '2026-05-15T00:00:00Z' });
+    expect(result.stars).toHaveLength(0);
+  });
+});
+
 describe('syncStars cancellation + input hygiene', () => {
   it('AbortController aborts mid-sync → GithubError kind=timeout', async () => {
     fm.fetchMock.mockImplementationOnce(

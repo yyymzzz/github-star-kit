@@ -32,6 +32,17 @@ export interface SyncStarsOptions {
   readonly perPage?: number;
   /** Cancel mid-sync. */
   readonly signal?: AbortSignal;
+  /**
+   * Incremental-mode short-circuit. When set, stops paginating as soon as
+   * we encounter an item whose `starred_at` is <= this timestamp. GitHub's
+   * /user/starred is sorted DESC, so any row <= since is already known
+   * locally. The orchestrator passes the cursor's `since` field here for
+   * post-first-full-sync runs.
+   *
+   * Caveat: incremental mode is incompatible with un-star cleanup — the
+   * orchestrator must NOT delete rows when this option is in play.
+   */
+  readonly since?: string | null;
 }
 
 export interface SyncStarsResult {
@@ -82,9 +93,18 @@ export async function syncStars(
       }
 
       const items = Array.isArray(response.data) ? response.data : [];
+      let sinceReached = false;
       for (const raw of items) {
-        stars.push(transformStarred(raw, fetchedAt));
+        const star = transformStarred(raw, fetchedAt);
+        // Incremental short-circuit: once we hit a row at or before the
+        // since cutoff, everything after it is older still — stop here.
+        if (options.since && star.starredAt <= options.since) {
+          sinceReached = true;
+          break;
+        }
+        stars.push(star);
       }
+      if (sinceReached) break;
 
       // Stop conditions: short page (< perPage means last) OR no `rel="next"`.
       if (items.length < perPage) break;

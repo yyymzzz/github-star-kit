@@ -17,9 +17,28 @@ import type {
 import type { StarKitOctokitInstance } from './client.js';
 import { syncStars, type SyncStarsResult } from './sync.js';
 
+/**
+ * How often we force a full sync — re-fetch the entire /user/starred list
+ * AND run the un-star cleanup pass. Between full syncs we use the cursor's
+ * `since` for an incremental short-circuit (cheap, but cannot detect
+ * un-stars). Seven days is a tradeoff: stale un-starred rows linger up
+ * to a week, but background traffic stays minimal.
+ */
+const FULL_SYNC_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+
+export type SyncMode = 'full' | 'incremental';
+
 export interface SyncWithStoreOptions {
   readonly perPage?: number;
   readonly signal?: AbortSignal;
+  /**
+   * Force a full sync (fetch the whole list + run un-star cleanup) even
+   * when the last full sync was recent. Used by:
+   *   - the "Refresh un-stars now" UX (let the user pull a manual full
+   *     re-sync when they know they un-starred something),
+   *   - tests that need deterministic full-mode behavior.
+   */
+  readonly forceFullSync?: boolean;
 }
 
 export interface SyncWithStoreStores {
@@ -40,13 +59,20 @@ export interface SyncWithStoreResult {
   readonly inserted: number;
   readonly updated: number;
   /**
-   * Rows we deleted from starStore because GitHub no longer lists them
-   * (user un-starred). Zero on notModified or cold sync. The UI can show
-   * "removed N un-starred repos" alongside inserted/updated.
+   * Rows deleted because GitHub no longer lists them (un-starred). Only
+   * non-zero on full syncs — incremental short-circuits cannot prove a row
+   * was un-starred (the request never reached the page it would be on).
    */
   readonly deleted: number;
   /** Store count AFTER the upsert + cleanup. */
   readonly knownCountAfter: number;
+  /**
+   * 'full' = no since cursor was passed; we fetched the whole list and
+   * ran the cleanup pass. 'incremental' = we used the prior cursor's
+   * since to early-exit pagination and skipped cleanup. Always 'full' on
+   * a cold sync (no prior cursor at all).
+   */
+  readonly syncMode: SyncMode;
 }
 
 /**
@@ -78,10 +104,29 @@ export async function syncStarsWithStore(
   const { starStore, cursorStore } = stores;
   const prevCursor = await cursorStore.get();
 
-  const syncOpts: { etag?: string | null; perPage?: number; signal?: AbortSignal } = {};
+  // Pick full vs incremental mode based on lastFullSyncAt freshness;
+  // the caller can also force full via opt.
+  const lastFullMs = prevCursor?.lastFullSyncAt
+    ? Date.parse(prevCursor.lastFullSyncAt)
+    : Number.NaN;
+  const needFullSync =
+    options.forceFullSync === true ||
+    !Number.isFinite(lastFullMs) ||
+    Date.now() - lastFullMs > FULL_SYNC_INTERVAL_MS;
+  const syncMode: SyncMode = needFullSync ? 'full' : 'incremental';
+
+  const syncOpts: {
+    etag?: string | null;
+    perPage?: number;
+    signal?: AbortSignal;
+    since?: string | null;
+  } = {};
   if (prevCursor?.etag) syncOpts.etag = prevCursor.etag;
   if (options.perPage !== undefined) syncOpts.perPage = options.perPage;
   if (options.signal !== undefined) syncOpts.signal = options.signal;
+  if (!needFullSync && prevCursor?.since) {
+    syncOpts.since = prevCursor.since;
+  }
 
   const syncResult: SyncStarsResult = await syncStars(client, syncOpts);
 
@@ -105,33 +150,30 @@ export async function syncStarsWithStore(
       updated: 0,
       deleted: 0,
       knownCountAfter: await starStore.count(),
+      syncMode,
     };
   }
 
   const upsertResult = await starStore.upsertMany(syncResult.stars);
 
-  // Mirror cleanup: any row already in the store whose id is NOT in the
-  // freshly-fetched set means the user un-starred it. Delete those rows
-  // so the store stays a faithful mirror of GitHub.
-  //
-  // Performance note: we list() with no limit so we get the full ID set.
-  // At v1 row counts (≤ a few thousand) this is fine. When ranges grow,
-  // a `listIds()` shortcut on StarStore that doesn't materialize values
-  // is the obvious optimization (deferred to W2 alongside the starred_at
-  // cursor path which would also touch this codepath).
-  const fetchedIds = new Set<number>(syncResult.stars.map((s) => s.id));
-  const existing = await starStore.list({ limit: Number.POSITIVE_INFINITY });
+  // Cleanup ONLY in full mode — incremental short-circuit cannot prove a
+  // row was un-starred (the request never reached the page it lives on).
   let deleted = 0;
-  for (const row of existing) {
-    if (!fetchedIds.has(row.id)) {
-      await starStore.delete(row.id);
-      deleted += 1;
+  let nextLastFullSyncAt = prevCursor?.lastFullSyncAt ?? null;
+  if (needFullSync) {
+    const fetchedIds = new Set<number>(syncResult.stars.map((s) => s.id));
+    const existing = await starStore.list({ limit: Number.POSITIVE_INFINITY });
+    for (const row of existing) {
+      if (!fetchedIds.has(row.id)) {
+        await starStore.delete(row.id);
+        deleted += 1;
+      }
     }
+    nextLastFullSyncAt = syncResult.fetchedAt;
   }
   const knownCountAfter = await starStore.count();
 
-  // Track the high-water mark of starred_at across this sync + prior cursor,
-  // so the eventual W2 starred_at-cutoff path has a real value to compare.
+  // High-water mark for next incremental run
   const baseSince = prevCursor?.since ?? '';
   const maxStarredAt = syncResult.stars.reduce<string>(
     (max, s) => (s.starredAt > max ? s.starredAt : max),
@@ -143,6 +185,7 @@ export async function syncStarsWithStore(
     since: maxStarredAt.length > 0 ? maxStarredAt : null,
     knownCount: knownCountAfter,
     updatedAt: syncResult.fetchedAt,
+    lastFullSyncAt: nextLastFullSyncAt,
   };
   await cursorStore.set(newCursor);
 
@@ -156,5 +199,6 @@ export async function syncStarsWithStore(
     updated: upsertResult.updated,
     deleted,
     knownCountAfter,
+    syncMode,
   };
 }

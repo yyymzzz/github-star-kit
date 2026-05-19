@@ -61,6 +61,14 @@ export const SyncCursorSchema = z.object({
   knownCount: z.number().int().nonnegative(),
   /** When this cursor was last updated. */
   updatedAt: z.string(),
+  /**
+   * ISO timestamp of the most recent FULL sync (one that fetched the whole
+   * /user/starred list and ran the un-star cleanup pass). Null = never
+   * done a full sync; treat the same as "stale" — the orchestrator will
+   * force the next sync into full mode. Forward-compatible default:
+   * existing cursors written before W2 D3b parse with null here.
+   */
+  lastFullSyncAt: z.string().nullable().default(null),
 });
 export type SyncCursor = z.infer<typeof SyncCursorSchema>;
 
