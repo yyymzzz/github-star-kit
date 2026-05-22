@@ -83,6 +83,32 @@ export function buildEmbedEndpoint(provider: ProviderName, baseUrl: string): str
 }
 
 /**
+ * Whether a base URL is safe to attach a BYOK API key to: https everywhere,
+ * with http allowed only for localhost / loopback (local proxies, Ollama-style
+ * setups). Any other scheme — or unparseable input — is rejected. This stops a
+ * typo'd or hostile `openai-compatible` baseUrl from exfiltrating the user's
+ * key over cleartext http to an arbitrary host.
+ */
+export function isSafeBaseUrl(baseUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return false;
+  }
+  if (url.protocol === 'https:') return true;
+  if (url.protocol === 'http:') {
+    return (
+      url.hostname === 'localhost' ||
+      url.hostname === '127.0.0.1' ||
+      url.hostname === '[::1]' ||
+      url.hostname === '::1'
+    );
+  }
+  return false;
+}
+
+/**
  * Default base URLs per provider when user hasn't set one.
  */
 export function defaultBaseUrl(provider: ProviderName): string {

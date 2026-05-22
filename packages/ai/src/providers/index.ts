@@ -10,10 +10,12 @@ import type { AIProvider, ProviderConfig } from '../types.js';
 import { AnthropicProvider } from './anthropic.js';
 import { OllamaProvider } from './ollama.js';
 import { OpenAIProvider } from './openai.js';
+import { OpenAICompatibleProvider } from './openai-compatible.js';
 import { VoyageProvider } from './voyage.js';
 
 export { BaseProvider } from './base.js';
 export { OpenAIProvider } from './openai.js';
+export { OpenAICompatibleProvider } from './openai-compatible.js';
 export { AnthropicProvider } from './anthropic.js';
 export { VoyageProvider } from './voyage.js';
 export { OllamaProvider } from './ollama.js';
@@ -33,11 +35,7 @@ export function createProvider(config: ProviderConfig): AIProvider {
     case 'ollama':
       return new OllamaProvider(config);
     case 'openai-compatible':
-      throw new AIError(
-        'bad_request',
-        "Provider 'openai-compatible' is not yet implemented",
-        { provider: config.provider }
-      );
+      return new OpenAICompatibleProvider(config);
     default: {
       const exhaustive: never = config.provider;
       throw new AIError('bad_request', `Unknown provider: ${String(exhaustive)}`, {

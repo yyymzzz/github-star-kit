@@ -3,6 +3,7 @@ import { AIError } from '../errors.js';
 import {
   AnthropicProvider,
   OllamaProvider,
+  OpenAICompatibleProvider,
   OpenAIProvider,
   VoyageProvider,
   createProvider,
@@ -33,7 +34,20 @@ describe('createProvider', () => {
     expect(p.name).toBe('ollama');
   });
 
-  it('throws AIError(bad_request) for openai-compatible (not yet implemented)', () => {
-    expect(() => createProvider({ provider: 'openai-compatible', baseUrl: 'x' })).toThrow(AIError);
+  it('returns OpenAICompatibleProvider for provider=openai-compatible', () => {
+    const p = createProvider({
+      provider: 'openai-compatible',
+      apiKey: 'k',
+      baseUrl: 'https://api.deepseek.com',
+    });
+    expect(p).toBeInstanceOf(OpenAICompatibleProvider);
+    expect(p.name).toBe('openai-compatible');
+  });
+
+  it('still throws AIError(bad_request) for an unknown provider', () => {
+    expect(() =>
+      // @ts-expect-error — exercise the exhaustive-switch default arm
+      createProvider({ provider: 'totally-made-up' })
+    ).toThrow(AIError);
   });
 });
