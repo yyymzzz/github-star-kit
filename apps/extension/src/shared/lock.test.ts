@@ -77,6 +77,23 @@ describe('tryAcquireSyncLock', () => {
     });
     expect(await tryAcquireSyncLock('owner-now')).toBe(true);
   });
+
+  it('lets only ONE of two concurrent acquirers win (TOCTOU race)', async () => {
+    // The race: cron + popup both read "no lock" before either writes.
+    // chrome.storage.local has no compare-and-swap, so each acquirer must
+    // confirm its own write survived before claiming ownership. Exactly one
+    // caller may end up running the sync.
+    const [a, b] = await Promise.all([
+      tryAcquireSyncLock('owner-a'),
+      tryAcquireSyncLock('owner-b'),
+    ]);
+    expect([a, b].filter(Boolean)).toHaveLength(1);
+    // The surviving lock record must belong to whichever caller won.
+    const winner = a ? 'owner-a' : 'owner-b';
+    expect(
+      (storage.raw().get(__LOCK_KEY_FOR_TEST) as SyncLockRecord).ownerId
+    ).toBe(winner);
+  });
 });
 
 // ─── releaseSyncLock ─────────────────────────────────────────────────

@@ -26,6 +26,14 @@ export interface SyncLockRecord {
   readonly acquiredAt: string;
   /** Caller identifier — for diagnostics + ownership check on release. */
   readonly ownerId: string;
+  /**
+   * Per-acquisition random token. chrome.storage.local has no atomic
+   * compare-and-swap, so an acquirer writes its record then re-reads: if its
+   * nonce survived, its write was the last one and it owns the lock; if a
+   * concurrent acquirer wrote after it, that nonce wins and this caller backs
+   * off. Distinguishes two acquisitions even when they share an ownerId.
+   */
+  readonly nonce: string;
 }
 
 async function readLock(): Promise<SyncLockRecord | undefined> {
@@ -50,9 +58,19 @@ export async function tryAcquireSyncLock(ownerId: string): Promise<boolean> {
   const record: SyncLockRecord = {
     acquiredAt: new Date().toISOString(),
     ownerId,
+    nonce: crypto.randomUUID(),
   };
   await chrome.storage.local.set({ [LOCK_KEY]: record });
-  return true;
+
+  // Compare-and-swap surrogate: re-read and confirm our write was the last
+  // one. If a concurrent acquirer's write landed after ours, its nonce is
+  // what we'll read back — we lost the race and must NOT proceed (the winner
+  // owns the lock). chrome.storage serializes writes, so there is exactly one
+  // last writer. This closes the common cron+popup correlated-timing race;
+  // it is still best-effort (no true CAS exists for chrome.storage), but a
+  // double-acquire now requires a far narrower interleaving than read-then-set.
+  const confirmed = await readLock();
+  return confirmed?.nonce === record.nonce;
 }
 
 /**
