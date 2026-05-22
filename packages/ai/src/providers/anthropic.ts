@@ -21,7 +21,7 @@ import type {
   ProviderName,
 } from '../types.js';
 import { buildChatEndpoint, defaultBaseUrl } from '../utils/urlBuilder.js';
-import { BaseProvider } from './base.js';
+import { BaseProvider, numberOr } from './base.js';
 
 const DEFAULT_CHAT_MODEL = 'claude-sonnet-4-6';
 const DEFAULT_MAX_TOKENS = 1024;
@@ -119,8 +119,4 @@ export class AnthropicProvider extends BaseProvider {
       provider: 'anthropic',
     });
   }
-}
-
-function numberOr(v: unknown, fallback: number): number {
-  return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 }

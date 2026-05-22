@@ -19,13 +19,14 @@ import {
   Setting,
 } from 'obsidian';
 import {
-  GithubError,
   IndexedDBCursorStore,
   IndexedDBStarStore,
   createGithubClient,
+  formatError,
+  formatRelativeTime,
+  formatSyncSummary,
   openStarKitDb,
   syncStarsWithStore,
-  type GithubErrorKind,
   type StarKitDB,
   type SyncWithStoreResult,
 } from '@starkit/core';
@@ -101,11 +102,9 @@ export default class StarKitPlugin extends Plugin {
       const result = await this.syncOnce();
       this.settings.lastSyncedAt = result.fetchedAt;
       await this.saveSettings();
-      new Notice(formatSyncResult(result), 5000);
+      new Notice(formatSyncSummary(result), 5000);
     } catch (err) {
-      const msg =
-        err instanceof GithubError ? githubErrorMessage(err) : formatUnknownError(err);
-      new Notice(`GitHub Star Kit: ${msg}`, 8000);
+      new Notice(`GitHub Star Kit: ${formatError(err)}`, 8000);
       console.warn('[starkit] sync failed:', err);
     }
   }
@@ -162,7 +161,7 @@ class StarKitSettingTab extends PluginSettingTab {
       .setName('Sync now')
       .setDesc(
         this.plugin.settings.lastSyncedAt
-          ? `Last sync: ${formatTimestamp(this.plugin.settings.lastSyncedAt)}`
+          ? `Last sync: ${formatRelativeTime(this.plugin.settings.lastSyncedAt)}`
           : 'No sync yet.'
       )
       .addButton((btn) =>
@@ -181,52 +180,6 @@ class StarKitSettingTab extends PluginSettingTab {
   }
 }
 
-// ─── Formatters ───────────────────────────────────────────────────────
-
-function formatSyncResult(r: SyncWithStoreResult): string {
-  if (r.notModified) {
-    return `Up to date · ${r.knownCountAfter} stars.`;
-  }
-  const parts: string[] = [];
-  if (r.inserted > 0) parts.push(`${r.inserted} new`);
-  if (r.updated > 0) parts.push(`${r.updated} updated`);
-  if (r.deleted > 0) parts.push(`${r.deleted} removed`);
-  if (parts.length === 0) return `Synced · ${r.knownCountAfter} stars.`;
-  return `${parts.join(' · ')} · ${r.knownCountAfter} total.`;
-}
-
-function githubErrorMessage(err: GithubError): string {
-  const messages: Record<GithubErrorKind, string> = {
-    auth: 'GitHub rejected the token — check the PAT and its scope.',
-    rate_limit:
-      err.context.rateLimitResetSeconds !== undefined
-        ? `GitHub rate limit hit. Try again in ~${Math.ceil(
-            err.context.rateLimitResetSeconds / 60
-          )} min.`
-        : 'GitHub rate limit hit. Try again later.',
-    not_found: 'Endpoint not found.',
-    validation: 'GitHub rejected the request.',
-    network: 'Network failure — check your connection.',
-    timeout: 'The request timed out.',
-    server: 'GitHub server error. Try again shortly.',
-    parse: 'Could not parse GitHub response.',
-    unknown: `Unknown failure: ${err.message}`,
-  };
-  return messages[err.kind];
-}
-
-function formatUnknownError(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-function formatTimestamp(iso: string): string {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return iso;
-  const diffMs = Date.now() - t;
-  const min = Math.floor(diffMs / 60_000);
-  if (min < 1) return 'just now';
-  if (min < 60) return `${min} min ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr} h ago`;
-  return new Date(t).toLocaleString();
-}
+// Presentation helpers (githubErrorMessage / formatSyncSummary /
+// formatRelativeTime / formatError) live in @starkit/core so the popup and
+// this plugin can't drift apart.

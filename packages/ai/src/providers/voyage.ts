@@ -19,7 +19,7 @@ import type {
   ProviderName,
 } from '../types.js';
 import { buildEmbedEndpoint, defaultBaseUrl } from '../utils/urlBuilder.js';
-import { BaseProvider } from './base.js';
+import { BaseProvider, numberOr } from './base.js';
 
 const DEFAULT_EMBED_MODEL = 'voyage-3';
 
@@ -106,8 +106,4 @@ export class VoyageProvider extends BaseProvider {
       inputTokens: numberOr(d.usage?.total_tokens, 0),
     };
   }
-}
-
-function numberOr(v: unknown, fallback: number): number {
-  return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 }

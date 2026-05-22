@@ -178,3 +178,12 @@ export abstract class BaseProvider implements AIProvider {
   /** Parse the provider's embed response into our EmbedResponse contract. */
   protected abstract parseEmbedResponse(data: unknown, req: EmbedRequest): EmbedResponse;
 }
+
+/**
+ * Coerce an unknown value to a finite number, falling back when it isn't one.
+ * Shared by every provider's token-usage parsing (provider JSON fields arrive
+ * as `unknown` until validated).
+ */
+export function numberOr(v: unknown, fallback: number): number {
+  return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+}

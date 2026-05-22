@@ -21,14 +21,15 @@ import {
   buildEmbedEndpoint,
   defaultBaseUrl,
 } from '../utils/urlBuilder.js';
-import { BaseProvider } from './base.js';
+import { BaseProvider, numberOr } from './base.js';
 
 const DEFAULT_CHAT_MODEL = 'gpt-4o-mini';
 const DEFAULT_EMBED_MODEL = 'text-embedding-3-small';
 
 export class OpenAIProvider extends BaseProvider {
   readonly name: ProviderName = 'openai';
-  private readonly baseUrl: string;
+  // protected so OpenAICompatibleProvider can build URLs against a custom base.
+  protected readonly baseUrl: string;
 
   constructor(config: ProviderConfig) {
     super(config);
@@ -122,8 +123,4 @@ export class OpenAIProvider extends BaseProvider {
       inputTokens: numberOr(d.usage?.prompt_tokens, 0),
     };
   }
-}
-
-function numberOr(v: unknown, fallback: number): number {
-  return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 }

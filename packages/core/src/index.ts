@@ -8,6 +8,14 @@
 
 export const VERSION = '0.0.1';
 
+export {
+  githubErrorMessage,
+  formatError,
+  formatSyncSummary,
+  formatRelativeTime,
+} from './format.js';
+export type { SyncSummaryInput } from './format.js';
+
 export type { StarredRepo, SyncCursor, StarTag } from './schema.js';
 export { StarredRepoSchema, SyncCursorSchema, StarTagSchema } from './schema.js';
 

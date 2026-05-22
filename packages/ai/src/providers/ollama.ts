@@ -21,7 +21,7 @@ import {
   buildEmbedEndpoint,
   defaultBaseUrl,
 } from '../utils/urlBuilder.js';
-import { BaseProvider } from './base.js';
+import { BaseProvider, numberOr } from './base.js';
 
 const DEFAULT_CHAT_MODEL = 'llama3.2';
 const DEFAULT_EMBED_MODEL = 'nomic-embed-text';
@@ -120,8 +120,4 @@ export class OllamaProvider extends BaseProvider {
       inputTokens: numberOr(d.prompt_eval_count, 0),
     };
   }
-}
-
-function numberOr(v: unknown, fallback: number): number {
-  return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 }
