@@ -2,7 +2,7 @@
 
 > 6-week MVP. Each week has a verifiable Friday demo gate.
 
-## Status: W1 Day 2 ✅ (provider layer)
+## Status: W3 Day 1 ✅ (VectorStore baseline) — W1 + W2 complete, 189 tests green
 
 | Week | Theme | Demo gate (verifiable) |
 |---|---|---|
@@ -19,13 +19,18 @@
 |---|---|---|
 | **1** | Monorepo scaffold + type contracts + pnpm install + typecheck pass | ✅ done |
 | **2** | `packages/ai/` rewrite: provider adapter (OpenAI/Anthropic/Voyage/Ollama) | ✅ done (Stage 1+2) — `openai-compatible` deferred to Stage 3 |
-| **3** | `packages/core/` rewrite: GitHub sync engine, local-first, ETag-aware | pending |
-| **4** | MV3 extension architecture + popup skeleton + content script entry | pending |
-| **5** | Popup → 10 starred repos via real GitHub API (demo gate) | pending |
+| **3** | `packages/core/` rewrite: GitHub sync engine, local-first, ETag-aware | ✅ done |
+| **4** | Storage abstractions + IndexedDB adapter + sync orchestrator (D4a/D4b) | ✅ done |
+| **5** | Popup → 10 starred repos via real GitHub API (demo gate) | ✅ done |
 
 ## W2–W6 detail
 
 Lives in the parent plan: `C:\Users\admin\.claude\plans\github-star-app-reddit-spicy-tide.md`.
+
+Progress:
+- **W2 ✅** — `chrome.alarms` 6h cron, Obsidian plugin wire-up (Settings + Sync command), cross-context sync mutex (`chrome.storage.local`, nonce-confirmed), full-vs-incremental hybrid sync with `starred_at` cursor.
+- **W3 🚧** — D1 done (VectorStore interface + in-memory cached-norm cosine baseline). Next: embedding pipeline (star → provider → VectorStore) + semantic-search wiring into popup, then auto-tag.
+- **Hardening (post-W3-D1)** — fixed P0 same-second incremental star-loss, P1 `pushed_at:null` sync abort, null `pushedAt` ordering; made un-star cleanup atomic (`deleteMany`, single IDB transaction).
 
 ## Risk tracker (linked to plan)
 
