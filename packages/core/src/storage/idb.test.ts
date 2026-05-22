@@ -122,6 +122,19 @@ describe('IndexedDBStarStore', () => {
     expect(await store.count()).toBe(0);
   });
 
+  it('deleteMany removes all listed ids in one transaction and returns deleted count', async () => {
+    const store = new IndexedDBStarStore(db);
+    await store.upsertMany([
+      makeStar({ id: 1 }),
+      makeStar({ id: 2 }),
+      makeStar({ id: 3 }),
+    ]);
+    const deleted = await store.deleteMany([1, 3, 999]); // 999 is absent
+    expect(deleted).toBe(2);
+    expect(await store.count()).toBe(1);
+    expect((await store.get(2))?.id).toBe(2);
+  });
+
   it('rejects schema violations before transaction commit', async () => {
     const store = new IndexedDBStarStore(db);
     await expect(

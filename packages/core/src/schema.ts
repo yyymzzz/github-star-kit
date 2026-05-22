@@ -25,8 +25,15 @@ export const StarredRepoSchema = z.object({
   language: z.string().nullable(),
   /** ISO-8601 of when user starred. */
   starredAt: z.string(),
-  /** ISO-8601 of latest push. */
-  pushedAt: z.string(),
+  /**
+   * ISO-8601 of latest push. Nullable: GitHub returns `pushed_at: null` for a
+   * repo that has never been pushed to (freshly created / empty). A single
+   * such starred repo must not abort the whole sync.
+   * Note: IndexedDB's `by-pushedAt` index skips null-keyed rows, so a
+   * never-pushed repo is omitted from `list({ orderBy: 'pushedAt' })` — which
+   * is the correct behavior for a "what's new" digest anyway.
+   */
+  pushedAt: z.string().nullable(),
   /** Star count snapshot at last sync. */
   stargazersCount: z.number().int().nonnegative(),
   /** Default branch name (for tarball deep-index later). */

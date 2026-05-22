@@ -89,6 +89,16 @@ describe('transformStarred', () => {
       expect((err as GithubError).kind).toBe('parse');
     }
   });
+
+  it('maps pushed_at:null (never-pushed repo) to pushedAt:null instead of throwing', () => {
+    // GitHub returns `pushed_at: null` for a repo that has never received a
+    // push (freshly created, empty). One such starred repo must NOT abort the
+    // entire sync via a schema-parse throw.
+    const raw = sampleStar({ id: 7 }) as { repo: { pushed_at: unknown } };
+    raw.repo.pushed_at = null;
+    const result = transformStarred(raw, '2026-05-19T10:00:00Z');
+    expect(result.pushedAt).toBeNull();
+  });
 });
 
 // ─── syncStars ────────────────────────────────────────────────────────
@@ -248,13 +258,13 @@ describe('createGithubClient', () => {
 });
 
 describe('syncStars since cursor short-circuit', () => {
-  it('stops at the first item with starred_at <= since (mid-page)', async () => {
+  it('stops at the first item strictly older than since (mid-page)', async () => {
     nextJson(
       fm,
       [
         sampleStar({ id: 3, starredAt: '2026-05-19T00:00:00Z' }),
         sampleStar({ id: 2, starredAt: '2026-05-17T00:00:00Z' }),
-        sampleStar({ id: 1, starredAt: '2026-05-15T00:00:00Z' }),
+        sampleStar({ id: 1, starredAt: '2026-05-10T00:00:00Z' }), // strictly < since
       ]
     );
     const client = createGithubClient({ token: TOKEN, retries: 0 });
@@ -263,12 +273,12 @@ describe('syncStars since cursor short-circuit', () => {
     expect(result.stars.map((s) => s.id)).toEqual([3, 2]);
   });
 
-  it('does not fetch the next page once since boundary is hit', async () => {
+  it('does not fetch the next page once a strictly-older row is hit', async () => {
     nextJson(
       fm,
       [
         sampleStar({ id: 3, starredAt: '2026-05-19T00:00:00Z' }),
-        sampleStar({ id: 2, starredAt: '2026-05-15T00:00:00Z' }),
+        sampleStar({ id: 2, starredAt: '2026-05-10T00:00:00Z' }), // strictly < since
       ],
       { nextLink: 'https://api.github.com/user/starred?page=2' }
     );
@@ -287,14 +297,16 @@ describe('syncStars since cursor short-circuit', () => {
     expect(result.stars).toHaveLength(1);
   });
 
-  it('treats since == starredAt as "already known" and skips that row', async () => {
-    // GitHub returns DESC, so equal-timestamp row is the boundary. We
-    // already have it locally (last sync ended at this timestamp), so
-    // skip it AND stop paginating.
+  it('returns a row whose starred_at EQUALS since (same-second stars are not lost)', async () => {
+    // A row at exactly `since` is NOT necessarily already known: the user may
+    // have starred it in the same wall-clock second as the prior high-water
+    // mark. syncStars returns it; the store's id-keyed upsert dedupes the one
+    // boundary row we already hold. A `<=` short-circuit here would silently
+    // drop new same-second stars until the next full sync.
     nextJson(fm, [sampleStar({ id: 5, starredAt: '2026-05-15T00:00:00Z' })]);
     const client = createGithubClient({ token: TOKEN, retries: 0 });
     const result = await syncStars(client, { since: '2026-05-15T00:00:00Z' });
-    expect(result.stars).toHaveLength(0);
+    expect(result.stars.map((s) => s.id)).toEqual([5]);
   });
 });
 

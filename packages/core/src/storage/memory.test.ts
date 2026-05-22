@@ -135,6 +135,21 @@ describe('StarStoreMemory.list ordering + paging', () => {
     expect(list.map((s) => s.id)).toEqual([2, 1]);
   });
 
+  it('orders a null pushedAt as the oldest (never-pushed repo sorts to the recent-end last)', async () => {
+    const store = new StarStoreMemory();
+    await store.upsertMany([
+      makeStar({ id: 1, pushedAt: '2026-05-10T00:00:00Z' }),
+      { ...makeStar({ id: 2 }), pushedAt: null }, // never-pushed (empty) repo
+      makeStar({ id: 3, pushedAt: '2026-05-20T00:00:00Z' }),
+    ]);
+    // desc = most-recently-pushed first; null (no push ever) goes last.
+    const desc = await store.list({ orderBy: 'pushedAt', order: 'desc' });
+    expect(desc.map((s) => s.id)).toEqual([3, 1, 2]);
+    // asc = oldest first; null leads.
+    const asc = await store.list({ orderBy: 'pushedAt', order: 'asc' });
+    expect(asc.map((s) => s.id)).toEqual([2, 1, 3]);
+  });
+
   it('orderBy: stargazersCount with order: desc', async () => {
     const store = new StarStoreMemory();
     await store.upsertMany([
@@ -180,6 +195,22 @@ describe('StarStoreMemory.get / delete / clear', () => {
     await store.upsertMany([makeStar({ id: 1 }), makeStar({ id: 2 })]);
     await store.clear();
     expect(await store.count()).toBe(0);
+  });
+
+  it('deleteMany removes all listed ids and returns the count actually deleted', async () => {
+    const store = new StarStoreMemory();
+    await store.upsertMany([makeStar({ id: 1 }), makeStar({ id: 2 }), makeStar({ id: 3 })]);
+    const deleted = await store.deleteMany([1, 3, 999]); // 999 is absent
+    expect(deleted).toBe(2);
+    expect(await store.count()).toBe(1);
+    expect((await store.get(2))?.id).toBe(2);
+  });
+
+  it('deleteMany on an empty id list is a no-op', async () => {
+    const store = new StarStoreMemory();
+    await store.upsertMany([makeStar({ id: 1 })]);
+    expect(await store.deleteMany([])).toBe(0);
+    expect(await store.count()).toBe(1);
   });
 });
 

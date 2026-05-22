@@ -135,6 +135,26 @@ export class IndexedDBStarStore implements StarStore {
     await this.db.delete('stars', id);
   }
 
+  async deleteMany(ids: ReadonlyArray<number>): Promise<number> {
+    if (ids.length === 0) return 0;
+    // ONE readwrite transaction for the whole batch: either the un-star
+    // reconciliation lands as a unit or (on error) rolls back, so the store
+    // never sits half-reconciled with GitHub's list.
+    const tx = this.db.transaction('stars', 'readwrite');
+    const store = tx.objectStore('stars');
+    let deleted = 0;
+    for (const id of ids) {
+      // Count only ids that actually existed so the caller's "N removed"
+      // tally reflects reality rather than the input list length.
+      if ((await store.get(id)) !== undefined) {
+        await store.delete(id);
+        deleted += 1;
+      }
+    }
+    await tx.done;
+    return deleted;
+  }
+
   async clear(): Promise<void> {
     await this.db.clear('stars');
   }

@@ -34,10 +34,13 @@ export interface SyncStarsOptions {
   readonly signal?: AbortSignal;
   /**
    * Incremental-mode short-circuit. When set, stops paginating as soon as
-   * we encounter an item whose `starred_at` is <= this timestamp. GitHub's
-   * /user/starred is sorted DESC, so any row <= since is already known
-   * locally. The orchestrator passes the cursor's `since` field here for
-   * post-first-full-sync runs.
+   * we encounter an item whose `starred_at` is STRICTLY older than this
+   * timestamp. GitHub's /user/starred is sorted DESC, so any row strictly
+   * older than `since` is already known locally. Rows whose `starred_at`
+   * equals `since` are still returned (they may be new stars created in the
+   * same second as the prior high-water mark); the store's id-keyed upsert
+   * deduplicates the boundary row we already hold. The orchestrator passes
+   * the cursor's `since` field here for post-first-full-sync runs.
    *
    * Caveat: incremental mode is incompatible with un-star cleanup — the
    * orchestrator must NOT delete rows when this option is in play.
@@ -96,9 +99,15 @@ export async function syncStars(
       let sinceReached = false;
       for (const raw of items) {
         const star = transformStarred(raw, fetchedAt);
-        // Incremental short-circuit: once we hit a row at or before the
-        // since cutoff, everything after it is older still — stop here.
-        if (options.since && star.starredAt <= options.since) {
+        // Incremental short-circuit: stop only at a row STRICTLY older than
+        // the cutoff. A row whose starred_at EQUALS `since` is NOT necessarily
+        // already known — `since` is a 1-second-resolution timestamp, and the
+        // user may have starred several repos in that same second after the
+        // last sync's high-water mark was recorded. Returning the equal-second
+        // rows (and letting the store's id-keyed upsert dedupe the one we
+        // already have) is what prevents silent data loss. Using `<=` here
+        // would drop every new same-second star until the next full sync.
+        if (options.since && star.starredAt < options.since) {
           sinceReached = true;
           break;
         }
@@ -174,7 +183,7 @@ export function transformStarred(raw: unknown, fetchedAt: string): StarredRepo {
     topics: Array.isArray(repo.topics) ? repo.topics : [],
     language: repo.language ?? null,
     starredAt: r.starred_at,
-    pushedAt: repo.pushed_at,
+    pushedAt: repo.pushed_at ?? null,
     stargazersCount: repo.stargazers_count,
     defaultBranch: repo.default_branch ?? 'main',
     archived: repo.archived ?? false,

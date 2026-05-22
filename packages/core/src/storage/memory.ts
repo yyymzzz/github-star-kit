@@ -95,6 +95,14 @@ export class StarStoreMemory implements StarStore {
     this.byId.delete(id);
   }
 
+  async deleteMany(ids: ReadonlyArray<number>): Promise<number> {
+    let deleted = 0;
+    for (const id of ids) {
+      if (this.byId.delete(id)) deleted += 1;
+    }
+    return deleted;
+  }
+
   async clear(): Promise<void> {
     this.byId.clear();
   }
@@ -110,10 +118,16 @@ function compareByField(
   if (field === 'stargazersCount') {
     cmp = a.stargazersCount - b.stargazersCount;
   } else {
-    // starredAt / pushedAt are ISO-8601, lexicographic compare is correct.
+    // starredAt / pushedAt are Z-normalized ISO-8601, so a lexicographic
+    // compare orders them chronologically. pushedAt may be null (never-pushed
+    // repo) — treat null as the oldest possible value so empty repos sort to
+    // the "least recent" end (last in desc, first in asc).
     const av = a[field];
     const bv = b[field];
-    cmp = av < bv ? -1 : av > bv ? 1 : 0;
+    if (av === bv) cmp = 0;
+    else if (av === null) cmp = -1;
+    else if (bv === null) cmp = 1;
+    else cmp = av < bv ? -1 : 1;
   }
   return order === 'desc' ? -cmp : cmp;
 }

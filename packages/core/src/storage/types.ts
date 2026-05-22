@@ -63,6 +63,14 @@ export interface StarStore {
 
   delete(id: number): Promise<void>;
 
+  /**
+   * Delete many rows by id in a single atomic operation (one IndexedDB
+   * transaction). Absent ids are ignored. Returns the number of rows actually
+   * deleted. Used by the un-star cleanup pass so a mid-batch failure can't
+   * leave the store partially reconciled with GitHub's list.
+   */
+  deleteMany(ids: ReadonlyArray<number>): Promise<number>;
+
   /** Drop ALL rows. For "log out" / "reset" flows. */
   clear(): Promise<void>;
 }

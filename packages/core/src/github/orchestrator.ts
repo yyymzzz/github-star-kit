@@ -163,12 +163,12 @@ export async function syncStarsWithStore(
   if (needFullSync) {
     const fetchedIds = new Set<number>(syncResult.stars.map((s) => s.id));
     const existing = await starStore.list({ limit: Number.POSITIVE_INFINITY });
-    for (const row of existing) {
-      if (!fetchedIds.has(row.id)) {
-        await starStore.delete(row.id);
-        deleted += 1;
-      }
-    }
+    const toDelete = existing
+      .filter((row) => !fetchedIds.has(row.id))
+      .map((row) => row.id);
+    // Single atomic batch — a mid-cleanup failure must not leave the store
+    // partially reconciled (some un-stars applied, others not).
+    deleted = await starStore.deleteMany(toDelete);
     nextLastFullSyncAt = syncResult.fetchedAt;
   }
   const knownCountAfter = await starStore.count();

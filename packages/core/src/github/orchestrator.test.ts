@@ -451,6 +451,35 @@ describe('syncStarsWithStore — full vs incremental hybrid', () => {
   });
 });
 
+describe('syncStarsWithStore — same-second boundary (data-loss regression)', () => {
+  it('does not drop new stars sharing the boundary starred_at on incremental sync', async () => {
+    const starStore = new StarStoreMemory();
+    const cursorStore = new CursorStoreMemory();
+    const client = createGithubClient({ token: TOKEN, retries: 0 });
+    const T = '2026-05-15T00:00:00Z';
+
+    // Cold sync: one repo starred at T → cursor.since = T, fresh lastFullSyncAt
+    // (so the next sync runs INCREMENTAL and passes since=T).
+    nextJson(fm, [sampleStar(1, T)], { headers: { etag: '"e1"' } });
+    await syncStarsWithStore(client, { starStore, cursorStore });
+    expect(await starStore.count()).toBe(1);
+
+    // User stars two MORE repos in the same wall-clock second as id=1. GitHub
+    // returns them ahead of id=1 (DESC). A `<= since` short-circuit would treat
+    // id=3 (== since) as "already known", break immediately, and silently lose
+    // id=2 and id=3 until the next full sync (up to 7 days later).
+    nextJson(
+      fm,
+      [sampleStar(3, T), sampleStar(2, T), sampleStar(1, T)],
+      { headers: { etag: '"e2"' } }
+    );
+    const r = await syncStarsWithStore(client, { starStore, cursorStore });
+
+    expect(r.syncMode).toBe('incremental');
+    expect(await starStore.count()).toBe(3);
+  });
+});
+
 describe('syncStarsWithStore — error propagation', () => {
   it('does not touch the cursor when syncStars throws', async () => {
     const starStore = new StarStoreMemory();
