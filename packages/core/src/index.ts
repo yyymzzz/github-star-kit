@@ -90,10 +90,14 @@ export {
   digestCosine,
   recencyBoost,
   generateDigest,
+  buildDigestSummaryPrompt,
+  DIGEST_SUMMARY_SYSTEM_PROMPT,
+  summarizeDigestEntries,
 } from './digest/index.js';
 export type {
   DigestEntry,
   DigestResult,
   GenerateDigestOptions,
   ListVectorsFn,
+  SummarizeOptions,
 } from './digest/index.js';

@@ -19,3 +19,9 @@ export {
   type GenerateDigestOptions,
   type ListVectorsFn,
 } from './orchestrator.js';
+export {
+  buildDigestSummaryPrompt,
+  DIGEST_SUMMARY_SYSTEM_PROMPT,
+  summarizeDigestEntries,
+  type SummarizeOptions,
+} from './summarize.js';

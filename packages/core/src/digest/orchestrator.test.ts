@@ -106,6 +106,74 @@ describe('generateDigest — happy paths', () => {
     expect(result.profileEmpty).toBe(true);
     expect(result.entries).toEqual([]);
     expect(result.candidateCount).toBe(0);
+    expect(result.unembeddedCount).toBe(0);
+  });
+});
+
+describe('generateDigest — R9 蓝军 fixes', () => {
+  it('reports unembeddedCount separately from candidateCount', async () => {
+    // 3 in-window candidates; only 1 has a vector. UI should see "1 ranked,
+    // 2 unembedded" rather than silently dropping the two.
+    const starStore = new StarStoreMemory();
+    await starStore.upsertMany([
+      makeStar({ id: 1, fullName: 'a/a' }),
+      makeStar({ id: 2, fullName: 'b/b' }),
+      makeStar({ id: 3, fullName: 'c/c' }),
+    ]);
+    const result = await generateDigest({
+      starStore,
+      listVectors: vectors([[1, [1, 0]]]),
+      now: NOW,
+    });
+    expect(result.candidateCount).toBe(1);
+    expect(result.unembeddedCount).toBe(2);
+  });
+
+  it('excludes the boundary (pushedMs == cutoffMs) — recency-zero candidates dropped', async () => {
+    // Push exactly windowDays ago — recencyBoost would return 0, so
+    // including it adds a relevance-only score that's hard to compare
+    // to in-window scores. Excluding it keeps the filter + boost story
+    // consistent.
+    const starStore = new StarStoreMemory();
+    const cutoffIso = new Date(NOW - 7 * DAY).toISOString();
+    await starStore.upsertMany([
+      makeStar({ id: 1, fullName: 'edge/edge', pushedAt: cutoffIso }),
+    ]);
+    const result = await generateDigest({
+      starStore,
+      listVectors: vectors([[1, [1, 0]]]),
+      now: NOW,
+      windowDays: 7,
+    });
+    expect(result.candidateCount).toBe(0);
+    expect(result.entries).toEqual([]);
+  });
+
+  it('breaks ties by pushedAt DESC for deterministic ordering', async () => {
+    // Two stars with identical vectors → identical relevance, but
+    // different pushedAt. The fresher push should win the tie.
+    const starStore = new StarStoreMemory();
+    const newer = new Date(NOW - 1 * DAY).toISOString();
+    const older = new Date(NOW - 5 * DAY).toISOString();
+    // Insert older FIRST — the natural starStore.list() order would put
+    // older first; the sort must override that on score tie.
+    await starStore.upsertMany([
+      makeStar({ id: 1, fullName: 'older/older', pushedAt: older }),
+      makeStar({ id: 2, fullName: 'newer/newer', pushedAt: newer }),
+    ]);
+    const result = await generateDigest({
+      starStore,
+      listVectors: vectors([
+        [1, [1, 0]],
+        [2, [1, 0]], // identical vector → identical relevance
+      ]),
+      now: NOW,
+      windowDays: 7,
+    });
+    // Both have ~equal relevance. Recency differs (-1d vs -5d), so the
+    // composite-score sort ALSO puts star 2 ahead — but ALSO check that
+    // even when composite ties, pushedAt DESC wins.
+    expect(result.entries[0]!.star.id).toBe(2);
   });
 });
 

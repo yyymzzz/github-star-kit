@@ -27,6 +27,7 @@ import {
   formatRelativeTime,
   formatSyncSummary,
   generateDigest,
+  summarizeDigestEntries,
   syncStarsWithStore,
   tagStars,
   type DigestResult,
@@ -231,6 +232,9 @@ export function App(): JSX.Element {
       // Newly-synced stars start untagged, so the count grows post-sync.
       const all = await starStore.list();
       setUntaggedCount(all.filter((s) => s.aiTags.length === 0).length);
+      // R9 蓝军 fix C1: clear stale digest after sync — its ranks are now
+      // computed against pre-sync data and could mislead the user.
+      setDigest(null);
     } catch (err) {
       setError(formatError(err));
     } finally {
@@ -286,6 +290,9 @@ export function App(): JSX.Element {
       const newCount = await vectorStore.count();
       setIndexedCount(newCount);
       setIndexProgress(null);
+      // R9 蓝军 fix C1: re-embedding rewrites the profile centroid; any
+      // on-screen digest's scores are no longer reproducible. Clear it.
+      setDigest(null);
     } catch (err) {
       setError(formatError(err));
     } finally {
@@ -381,10 +388,42 @@ export function App(): JSX.Element {
       setDigest(result);
       setQuery(''); // Search query takes precedence; clear it so digest shows.
       setSearchResults([]);
+
+      // W4 V1: layer the LLM "why this matters" hook on top of the ranking.
+      // Async (popup shows the ranked list immediately; summaries fill in
+      // as they return). Bounded concurrency = 3 so 10 entries finish in
+      // ~3s on a typical OpenAI roundtrip. Errors are per-entry — the
+      // ranking still ships even if every summary fails.
+      if (openaiKey && result.entries.length > 0) {
+        const provider = createProvider({
+          provider: 'openai',
+          apiKey: openaiKey,
+          chatModel: DEFAULT_CHAT_MODEL,
+        });
+        try {
+          const withSummaries = await summarizeDigestEntries(
+            result.entries,
+            (system, user, signal) =>
+              provider
+                .chat({ system, user, ...(signal ? { signal } : {}) })
+                .then((r) => ({
+                  text: r.text,
+                  inputTokens: r.inputTokens,
+                  outputTokens: r.outputTokens,
+                  model: r.model,
+                })),
+            { concurrency: 3 }
+          );
+          setDigest({ ...result, entries: withSummaries });
+        } catch (sumErr) {
+          // Summary layer is best-effort. Log + leave ranked list as-is.
+          console.warn('[starkit] digest summaries failed:', sumErr);
+        }
+      }
     } catch (err) {
       setError(formatError(err));
     }
-  }, [indexedCount]);
+  }, [indexedCount, openaiKey]);
 
   const onCloseDigest = useCallback(() => {
     setDigest(null);
@@ -614,6 +653,9 @@ export function App(): JSX.Element {
             <span>
               📰 Weekly digest — top {digest.entries.length} of{' '}
               {digest.candidateCount} this week
+              {digest.unembeddedCount > 0
+                ? ` (+${digest.unembeddedCount} unranked, not yet embedded)`
+                : ''}
             </span>
             <button
               type="button"
@@ -635,6 +677,9 @@ export function App(): JSX.Element {
               {digest.entries.map((entry) => (
                 <li key={entry.star.id} style={styles.listItem}>
                   <RepoLink star={entry.star} score={entry.score} />
+                  {entry.summary && (
+                    <div style={styles.digestSummary}>{entry.summary}</div>
+                  )}
                 </li>
               ))}
             </ol>
@@ -864,6 +909,16 @@ const styles = {
     fontWeight: 600,
     opacity: 0.75,
     padding: '4px 2px',
+  },
+  digestSummary: {
+    fontSize: '11px',
+    opacity: 0.8,
+    lineHeight: 1.5,
+    padding: '4px 8px',
+    background: 'rgba(99, 102, 241, 0.05)',
+    borderLeft: '2px solid rgba(99, 102, 241, 0.3)',
+    borderRadius: '3px',
+    fontStyle: 'italic' as const,
   },
   tagChip: {
     fontSize: '10px',
