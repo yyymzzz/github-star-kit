@@ -38,9 +38,22 @@ export interface EmbeddingRow {
 }
 
 /**
- * The "call provider.embed once" callback. Shape matches AIProvider.embed
- * minus the `dim` field (caller computes it from vectors[0].length if needed)
- * and minus `signal` (the orchestrator routes its own signal in).
+ * The "call provider.embed once" callback.
+ *
+ * NOTE on shape vs `AIProvider.embed`: this callback is `(inputs, signal?) =>
+ * Promise<...>` — positional args — while `AIProvider.embed` takes a single
+ * `EmbedRequest` object. You CANNOT pass `provider.embed.bind(provider)`
+ * directly; wrap with a one-liner at the call site:
+ *
+ *   embedStars({
+ *     embed: (inputs, signal) => provider.embed({ inputs, signal }),
+ *     ...
+ *   });
+ *
+ * The return shape is a strict subset of `EmbedResponse` (omits `dim`); the
+ * full `EmbedResponse` is structurally assignable here, so the adapter just
+ * forwards the response unchanged. Keeping this callback storage-agnostic is
+ * what lets @starkit/core stay free of an @starkit/ai workspace dep.
  */
 export type EmbedBatchFn = (
   inputs: ReadonlyArray<string>,
@@ -54,18 +67,35 @@ export type EmbedBatchFn = (
 /**
  * VectorStore.upsertMany shape — narrowed to the minimum the orchestrator
  * needs so callers don't have to satisfy the entire VectorStore interface.
+ *
+ * Variance: parameter is contravariant — a function that accepts the wider
+ * `ReadonlyArray<VectorRow>` (like `vec.upsertMany`) IS assignable to this
+ * field because `EmbeddingRow` is structurally a `VectorRow` (`metadata`
+ * being a `Record<string, unknown>` admits any keyed object including
+ * EmbeddingRow's strict shape). The popup wires this directly as
+ * `upsert: (rows) => vec.upsertMany(rows)` without an adapter.
  */
 export type VectorUpsertFn = (
   rows: ReadonlyArray<EmbeddingRow>
 ) => Promise<{ inserted: number; updated: number }>;
 
 /**
- * VectorStore.get shape — also narrowed. Only contentHash is consulted, so
- * callers can return a slimmer record than full VectorRow if they want.
+ * VectorStore.get shape — accepts the wider `Record<string, unknown>` metadata
+ * so callers can pass `vectorStore.get` (which returns `VectorRow | null`)
+ * directly without an adapter. The orchestrator narrows `metadata.contentHash`
+ * with a `typeof` runtime check, so a non-string value (or a row written by an
+ * older orchestrator version) safely fails the skip check instead of producing
+ * a type-unsound comparison.
+ *
+ * Type-compat note: a narrower `{ contentHash?: string }` return type would
+ * NOT accept `VectorStore.get`'s return — `Record<string, unknown>` is not
+ * assignable to `{ contentHash?: string }` because the `unknown` value isn't
+ * assignable to `string | undefined`. Loosening here is the only way the
+ * popup wiring `getExisting: (id) => vec.get(id)` typechecks.
  */
 export type VectorLookupFn = (
   id: string
-) => Promise<{ metadata?: { contentHash?: string } } | null>;
+) => Promise<{ metadata?: Record<string, unknown> } | null>;
 
 export interface EmbedStarsOptions {
   readonly starStore: StarStore;
@@ -126,9 +156,14 @@ const DEFAULT_BATCH_SIZE = 32;
  * embedStars after a failed run — already-embedded rows are skipped via
  * contentHash, so retries are cheap.
  *
- * Abort model: an aborted signal interrupts BEFORE the next batch starts.
- * In-flight provider.embed calls receive the same signal and should reject
- * with AbortError, which propagates out of embedStars unchanged.
+ * Abort model: between-batch granularity. `opts.signal?.aborted` is checked
+ * at the top of each batch iteration and AFTER each provider.embed returns,
+ * so a signal that aborts during an in-flight embed call surfaces as soon as
+ * that call resolves (the provider is also passed the signal and SHOULD
+ * reject mid-flight with AbortError if it honors AbortController — but a
+ * provider that ignores the signal can hang up to one batch). All embedded
+ * rows that already landed via earlier batches' upsert calls remain — abort
+ * is a stop, not a rollback.
  */
 export async function embedStars(
   opts: EmbedStarsOptions
@@ -138,9 +173,14 @@ export async function embedStars(
     throw new Error(`embedStars: batchSize must be >= 1, got ${batchSize}`);
   }
 
-  const allStars = await opts.starStore.list({
-    limit: Number.POSITIVE_INFINITY,
-  });
+  // No options = default ordering (starredAt DESC) + no limit. We deliberately
+  // do NOT pass `{ limit: Number.POSITIVE_INFINITY }` — that works on the
+  // memory backend by accident (`array.slice(0, offset + Infinity)` is treated
+  // as "to end") but the StarStoreListOptions contract does not promise this,
+  // and a future sqlite-vec / IndexedDB cursor-paged backend could legitimately
+  // round Infinity to 0 and return nothing. The orchestrator wants every row;
+  // letting the default speak is the safer contract.
+  const allStars = await opts.starStore.list();
   const total = allStars.length;
 
   let embedded = 0;
@@ -161,18 +201,37 @@ export async function embedStars(
     }
 
     const batchStars = allStars.slice(i, i + batchSize);
+    // Pre-compute hashes for every star in the batch — a sync, cheap op (djb2
+    // over composed text), worth doing before the parallel I/O fan-out below.
+    const hashes = batchStars.map((s) => contentHash(s));
 
     // Filter out rows whose contentHash matches what's stored.
+    // R5 蓝军 fix: fan getExisting() out in parallel. Doing this serially
+    // burned ~1.6s per batch on a 50ms-IDB latency (batchSize=32 × 50ms),
+    // so at 1000 stars / 32 batches that was ~50s of pure wait. Promise.all
+    // collapses to a single batch RTT.
+    const existings = opts.getExisting
+      ? await Promise.all(
+          batchStars.map((s) => opts.getExisting!(`star:${s.id}`))
+        )
+      : null;
+
     const toEmbed: Array<{
       readonly star: StarredRepo;
       readonly input: string;
       readonly hash: string;
     }> = [];
-    for (const star of batchStars) {
-      const hash = contentHash(star);
-      if (opts.getExisting) {
-        const existing = await opts.getExisting(`star:${star.id}`);
-        if (existing?.metadata?.contentHash === hash) {
+    for (let j = 0; j < batchStars.length; j += 1) {
+      const star = batchStars[j]!;
+      const hash = hashes[j]!;
+      if (existings) {
+        const existing = existings[j];
+        // Runtime-narrow `metadata.contentHash` from `unknown` (the type of
+        // values in a `Record<string, unknown>` metadata) down to `string`.
+        // A non-string contentHash is treated as "no hash" — we'd rather
+        // re-embed once than skip on a corrupt comparison.
+        const existingHash = existing?.metadata?.['contentHash'];
+        if (typeof existingHash === 'string' && existingHash === hash) {
           skipped += 1;
           continue;
         }
@@ -195,6 +254,14 @@ export async function embedStars(
         toEmbed.map((x) => x.input),
         opts.signal
       );
+
+      // Re-check abort RIGHT AFTER embed returns. If the signal aborted while
+      // the call was in flight and the provider honored it, we already threw;
+      // if the provider IGNORED the signal, we'd otherwise upsert a batch the
+      // user asked us to abandon. This catches the lazy-provider case.
+      if (opts.signal?.aborted) {
+        throw new DOMException('embedStars aborted', 'AbortError');
+      }
 
       // Provider contract sanity: vectors[i] corresponds to inputs[i]. A
       // length mismatch means the provider misaligned the response — we'd

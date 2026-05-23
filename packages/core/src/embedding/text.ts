@@ -51,8 +51,11 @@ export function buildStarEmbeddingInput(star: StarredRepo): string {
  *      identical everywhere.
  *
  * Collision resistance is not a security property here — we'd accept a stale
- * embedding if two different texts collided. djb2's distribution is good
- * enough that this never happens in practice at 5-digit row counts.
+ * embedding if two different texts collided. djb2's distribution at 32 bits
+ * gives ~1% collision probability around 9k items (birthday paradox), so the
+ * safe window is "low-thousand row counts". W3 KPI targets 1000 stars; W4-W5
+ * may push higher and at that point this should widen to 64-bit (two djb2
+ * passes with different seeds, concat hex) before the collision curve bites.
  */
 export function contentHash(star: StarredRepo): string {
   const s = buildStarEmbeddingInput(star);
