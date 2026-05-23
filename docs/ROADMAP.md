@@ -2,7 +2,7 @@
 
 > 6-week MVP. Each week has a verifiable Friday demo gate.
 
-## Status: ✅ **W3 complete** — semantic search + auto-tag both wired through popup. W1 + W2 + W3 D1-D5 done, 303 tests green, end-to-end demo-gate smoke passing, CI gated. **Next: W4 AI weekly digest.**
+## Status: ✅ **W3 + W4 V1 complete** — semantic search + auto-tag + AI weekly digest with LLM "why this matters" narration all wired through popup. W1 + W2 + W3 D1-D5 + W4 V0/V1 done, 347 tests green, end-to-end demo-gate smoke passing, CI gated. **Next: W5 code-context deep-index, W6 polish + store submission.**
 
 | Week | Theme | Demo gate (verifiable) |
 |---|---|---|
@@ -30,6 +30,7 @@ Lives in the parent plan: `C:\Users\admin\.claude\plans\github-star-app-reddit-s
 Progress:
 - **W2 ✅** — `chrome.alarms` 6h cron, Obsidian plugin wire-up (Settings + Sync command), cross-context sync mutex (`chrome.storage.local`, nonce-confirmed), full-vs-incremental hybrid sync with `starred_at` cursor.
 - **W3 ✅** — D1 VectorStore baseline (interface + MemoryVectorStore with cached-norm cosine), D2 embedding pipeline (`@starkit/core/embedding`: `buildStarEmbeddingInput` + djb2 `contentHash` + `embedStars` orchestrator with batching, AbortSignal, per-batch failure isolation, contentHash skip-cache short-circuit), D3 popup semantic search wiring (`IndexedDBVectorStore` adapter on schema v2, pre-fill MemoryVectorStore at popup mount, dual-upsert on embed, search rehydrate from starStore), D4 auto-tag (`@starkit/core/tagging`: TAG_SYSTEM_PROMPT + `tagStars` orchestrator with bounded concurrency, `parseTagResponse` defensive parser, tag chips render under each repo in popup), D5 demo-gate smoke (end-to-end pipeline test on fake-indexeddb, 20ms for 50 stars vs <500ms budget). R5 蓝军 surfaced + fixed a VectorLookupFn type-narrowness bug that would have blocked D3 popup wiring.
+- **W4 ✅** — V0 (`@starkit/core/digest`: `computeInterestProfile` centroid, `generateDigest` orchestrator with `cosine × 0.8 + recency × 0.2` composite scoring, candidate filter for archived/forks/null pushedAt/window cutoff) + V1 (`summarizeDigestEntries`: LLM "why this matters" 1-2 sentence hook per entry, bounded concurrency, per-entry failure isolation). Popup "📰 Weekly digest" button computes locally (zero new GitHub calls), surfaces ranked + summarized list under same RepoLink card style, falls back to ranking-only on summary failure. R9 蓝军 surfaced + fixed: digest staleness on sync/re-embed (auto-clear), window-boundary inconsistency (`<=` cutoff), unembedded-count exposure to UI, deterministic pushedAt tiebreak.
 - **Hardening (post-W3-D1)** — fixed P0 same-second incremental star-loss, P1 `pushed_at:null` sync abort, null `pushedAt` ordering; made un-star cleanup atomic (`deleteMany`, single IDB transaction).
 
 ## Risk tracker (linked to plan)

@@ -2,7 +2,7 @@
 
 > AI-powered GitHub Star intelligence: never forget what you starred and why.
 
-**Status**: ✅ **W3 complete** — semantic search + auto-tag fully wired. W1 + W2 + W3 D1-D5 all landed: GitHub sync engine (ETag + incremental), IndexedDB storage, extension popup MVP with semantic search ("rust async runtime" → top-5 in <500ms via OpenAI embeddings), auto-tag (gpt-4o-mini generates 3-5 tags per repo), Obsidian plugin shell. **303 contract tests green** + end-to-end demo-gate smoke. CI gates typecheck + test + build on every push/PR. **Next: W4 — personalized AI weekly digest (P0 blue-ocean angle).**
+**Status**: ✅ **W3 + W4 V1 complete** — semantic search + auto-tag + personalized weekly digest with LLM narration all wired. W1 + W2 + W3 D1-D5 + W4 V0/V1 landed: GitHub sync engine (ETag + incremental), IndexedDB storage, extension popup with semantic search ("rust async runtime" → top-5 in <500ms via OpenAI embeddings), auto-tag (gpt-4o-mini, 3-5 tags per repo), **personalized AI weekly digest** (centroid-based relevance ranking + LLM-generated "why this matters" hooks per entry — the blue-ocean P0 angle), Obsidian plugin shell. **347 contract tests green** + end-to-end demo-gate smoke. CI gates typecheck + test + build on every push/PR. **Next: W5 code-context deep-index, W6 polish + Chrome Web Store submission.**
 
 ## What this is
 
