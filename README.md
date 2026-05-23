@@ -2,7 +2,7 @@
 
 > AI-powered GitHub Star intelligence: never forget what you starred and why.
 
-**Status**: 🚧 W3 Day 1 — W1 + W2 complete: GitHub sync engine (ETag + incremental), IndexedDB storage, extension popup MVP, and Obsidian plugin all landed. VectorStore baseline in place; semantic search (W3) not yet wired end-to-end. 189 contract tests green.
+**Status**: 🚧 W3 Day 1 — W1 + W2 complete: GitHub sync engine (ETag + incremental), IndexedDB storage, extension popup MVP, and Obsidian plugin all landed. VectorStore baseline in place; semantic search (W3) not yet wired end-to-end. 217 contract tests green; CI gates typecheck + test + build on every push/PR.
 
 ## What this is
 

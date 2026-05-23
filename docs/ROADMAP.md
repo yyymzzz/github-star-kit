@@ -2,7 +2,7 @@
 
 > 6-week MVP. Each week has a verifiable Friday demo gate.
 
-## Status: W3 Day 1 ✅ (VectorStore baseline) — W1 + W2 complete, 189 tests green
+## Status: W3 Day 1 ✅ (VectorStore baseline) — W1 + W2 complete, 217 tests green, CI gated
 
 | Week | Theme | Demo gate (verifiable) |
 |---|---|---|
