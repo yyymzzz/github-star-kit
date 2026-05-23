@@ -27,6 +27,7 @@ import {
   formatRelativeTime,
   formatSyncSummary,
   syncStarsWithStore,
+  tagStars,
   type StarredRepo,
   type SyncCursor,
 } from '@starkit/core';
@@ -45,6 +46,11 @@ const DEFAULT_EMBED_MODEL = 'text-embedding-3-small';
 type SyncState = 'idle' | 'syncing';
 type EmbedState = 'idle' | 'embedding';
 type SearchState = 'idle' | 'searching';
+type TagState = 'idle' | 'tagging';
+
+/** Default chat model for auto-tag. gpt-4o-mini is the cost/quality sweet
+ *  spot for one-shot classification — $0.15/$0.60 per M tokens. */
+const DEFAULT_CHAT_MODEL = 'gpt-4o-mini';
 
 interface SearchHit {
   readonly star: StarredRepo;
@@ -61,15 +67,21 @@ export function App(): JSX.Element {
   const [stars, setStars] = useState<ReadonlyArray<StarredRepo>>([]);
   const [knownCount, setKnownCount] = useState<number>(0);
   const [indexedCount, setIndexedCount] = useState<number>(0);
+  const [untaggedCount, setUntaggedCount] = useState<number>(0);
   const [cursor, setCursor] = useState<SyncCursor | null>(null);
 
   const [syncState, setSyncState] = useState<SyncState>('idle');
   const [embedState, setEmbedState] = useState<EmbedState>('idle');
   const [searchState, setSearchState] = useState<SearchState>('idle');
+  const [tagState, setTagState] = useState<TagState>('idle');
 
   const [error, setError] = useState<string | null>(null);
   const [lastSyncSummary, setLastSyncSummary] = useState<string | null>(null);
   const [indexProgress, setIndexProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
+  const [tagProgress, setTagProgress] = useState<{
     done: number;
     total: number;
   } | null>(null);
@@ -112,6 +124,12 @@ export function App(): JSX.Element {
         setKnownCount(cnt);
         setCursor(cur);
         setIndexedCount(vecRows.length);
+        // Untagged count drives the "Auto-tag" button label + visibility.
+        // Full-store scan via list() is acceptable at v1 row counts (~1000);
+        // a future cursor backend can swap this for an indexed predicate
+        // count when row counts justify it.
+        const all = await stores.starStore.list();
+        setUntaggedCount(all.filter((s) => s.aiTags.length === 0).length);
       } catch (err) {
         if (!cancelled) setError(formatError(err));
       }
@@ -166,6 +184,7 @@ export function App(): JSX.Element {
       setStars([]);
       setKnownCount(0);
       setIndexedCount(0);
+      setUntaggedCount(0);
       setCursor(null);
       setLastSyncSummary(null);
       setSearchResults([]);
@@ -205,6 +224,9 @@ export function App(): JSX.Element {
       setKnownCount(cnt);
       setCursor(cur);
       setLastSyncSummary(formatSyncSummary(result));
+      // Newly-synced stars start untagged, so the count grows post-sync.
+      const all = await starStore.list();
+      setUntaggedCount(all.filter((s) => s.aiTags.length === 0).length);
     } catch (err) {
       setError(formatError(err));
     } finally {
@@ -266,6 +288,63 @@ export function App(): JSX.Element {
       setEmbedState('idle');
     }
   }, [openaiKey, embedState, knownCount]);
+
+  // ─── Auto-tag: LLM-generated tags per repo ────────────────────────────
+  const onAutoTag = useCallback(async () => {
+    if (!openaiKey || tagState === 'tagging') return;
+    setTagState('tagging');
+    setTagProgress({ done: 0, total: untaggedCount });
+    setError(null);
+
+    try {
+      const { starStore } = await getStores();
+      const provider = createProvider({
+        provider: 'openai',
+        apiKey: openaiKey,
+        chatModel: DEFAULT_CHAT_MODEL,
+      });
+
+      await tagStars({
+        starStore,
+        // Adapter: AIProvider.chat takes a ChatRequest object; ChatBatchFn
+        // wants (system, user, signal) positional.
+        chat: (system, user, signal) =>
+          provider
+            .chat({ system, user, ...(signal ? { signal } : {}) })
+            .then((r) => ({
+              text: r.text,
+              inputTokens: r.inputTokens,
+              outputTokens: r.outputTokens,
+              model: r.model,
+            })),
+        // Persist aiTags by re-upserting the star row with the new tags
+        // merged in. starStore.upsertMany validates via zod so a malformed
+        // aiTags array would fail loudly here rather than silently corrupt
+        // the row.
+        updateStar: async (id, aiTags) => {
+          const existing = await starStore.get(id);
+          if (!existing) return;
+          await starStore.upsertMany([{ ...existing, aiTags: [...aiTags] }]);
+        },
+        onProgress: (done, total) => setTagProgress({ done, total }),
+      });
+
+      // Refresh: top-10 list re-fetches so tags become visible; untagged
+      // count drops to whatever didn't get tagged this pass (parser empty,
+      // chat errors, etc.).
+      const [top, all] = await Promise.all([
+        starStore.list({ limit: 10 }),
+        starStore.list(),
+      ]);
+      setStars(top);
+      setUntaggedCount(all.filter((s) => s.aiTags.length === 0).length);
+      setTagProgress(null);
+    } catch (err) {
+      setError(formatError(err));
+    } finally {
+      setTagState('idle');
+    }
+  }, [openaiKey, tagState, untaggedCount]);
 
   // ─── Search ───────────────────────────────────────────────────────────
   const onSearch = useCallback(async () => {
@@ -443,6 +522,24 @@ export function App(): JSX.Element {
         </div>
       )}
 
+      {/* Auto-tag button — only when OpenAI key set + there's untagged work.
+          Doesn't depend on index being built; tagging is independent of search. */}
+      {openaiKey !== '' && untaggedCount > 0 && tagState === 'idle' && (
+        <button
+          type="button"
+          onClick={() => void onAutoTag()}
+          style={styles.secondaryButton}
+        >
+          Auto-tag {untaggedCount} repo{untaggedCount === 1 ? '' : 's'}
+        </button>
+      )}
+
+      {tagState === 'tagging' && tagProgress && (
+        <div style={styles.notice}>
+          Tagging {tagProgress.done}/{tagProgress.total}…
+        </div>
+      )}
+
       {/* Results list — search hits if query active, otherwise recent stars */}
       {showSearchResults ? (
         <ol style={styles.list}>
@@ -563,6 +660,15 @@ function RepoLink(props: {
       {star.description && (
         <div style={styles.repoDesc}>{truncate(star.description, 120)}</div>
       )}
+      {star.aiTags.length > 0 && (
+        <div style={styles.tagRow}>
+          {star.aiTags.map((t) => (
+            <span key={t} style={styles.tagChip}>
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
       <div style={styles.repoMeta}>
         ★ {star.stargazersCount.toLocaleString()} · starred{' '}
         {formatRelativeTime(star.starredAt)}
@@ -642,6 +748,30 @@ const styles = {
     fontSize: '13px',
     fontWeight: 600,
     cursor: 'pointer',
+  },
+  secondaryButton: {
+    padding: '7px 12px',
+    border: '1px solid rgba(127, 127, 127, 0.3)',
+    background: 'transparent',
+    color: 'inherit',
+    borderRadius: '6px',
+    fontSize: '12px',
+    fontWeight: 500,
+    cursor: 'pointer',
+  },
+  tagRow: {
+    display: 'flex',
+    flexWrap: 'wrap' as const,
+    gap: '4px',
+    marginTop: '2px',
+  },
+  tagChip: {
+    fontSize: '10px',
+    padding: '1px 6px',
+    background: 'rgba(99, 102, 241, 0.12)',
+    color: 'rgb(67, 56, 202)',
+    borderRadius: '10px',
+    fontWeight: 500,
   },
   smallButton: {
     padding: '4px 10px',

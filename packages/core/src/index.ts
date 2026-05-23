@@ -71,3 +71,16 @@ export type {
   VectorLookupFn,
   VectorUpsertFn,
 } from './embedding/index.js';
+
+export {
+  buildTagUserPrompt,
+  parseTagResponse,
+  TAG_SYSTEM_PROMPT,
+  tagStars,
+} from './tagging/index.js';
+export type {
+  ChatBatchFn,
+  TagStarsOptions,
+  TagStarsResult,
+  UpdateStarTagsFn,
+} from './tagging/index.js';
