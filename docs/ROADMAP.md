@@ -2,7 +2,7 @@
 
 > 6-week MVP. Each week has a verifiable Friday demo gate.
 
-## Status: W3 Day 1 ✅ (VectorStore baseline) — W1 + W2 complete, 217 tests green, CI gated
+## Status: W3 Day 2 ✅ (embedding pipeline) — W1 + W2 + W3 D1 complete, 245 tests green, CI gated
 
 | Week | Theme | Demo gate (verifiable) |
 |---|---|---|
@@ -29,7 +29,7 @@ Lives in the parent plan: `C:\Users\admin\.claude\plans\github-star-app-reddit-s
 
 Progress:
 - **W2 ✅** — `chrome.alarms` 6h cron, Obsidian plugin wire-up (Settings + Sync command), cross-context sync mutex (`chrome.storage.local`, nonce-confirmed), full-vs-incremental hybrid sync with `starred_at` cursor.
-- **W3 🚧** — D1 done (VectorStore interface + in-memory cached-norm cosine baseline). Next: embedding pipeline (star → provider → VectorStore) + semantic-search wiring into popup, then auto-tag.
+- **W3 🚧** — D1 done (VectorStore interface + in-memory cached-norm cosine baseline). D2 done (`@starkit/core/embedding`: `buildStarEmbeddingInput` + djb2 `contentHash` + `embedStars` orchestrator with batching, AbortSignal, per-batch failure isolation, and a contentHash skip-cache short-circuit). Next: D3 — wire `provider.embed` + `vectorStore.search` into popup for the "rust async runtime → top-5 in <500ms" demo gate; then D4 auto-tag.
 - **Hardening (post-W3-D1)** — fixed P0 same-second incremental star-loss, P1 `pushed_at:null` sync abort, null `pushedAt` ordering; made un-star cleanup atomic (`deleteMany`, single IDB transaction).
 
 ## Risk tracker (linked to plan)
