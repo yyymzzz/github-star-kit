@@ -2,7 +2,7 @@
 
 > AI-powered GitHub Star intelligence: never forget what you starred and why.
 
-**Status**: 🚧 W3 Day 2 — W1 + W2 complete: GitHub sync engine (ETag + incremental), IndexedDB storage, extension popup MVP, and Obsidian plugin all landed. W3 D1 (VectorStore baseline) + D2 (embedding pipeline orchestrator with contentHash skip-cache) done; popup search wiring (D3) next. 245 contract tests green; CI gates typecheck + test + build on every push/PR.
+**Status**: ✅ **W3 complete** — semantic search + auto-tag fully wired. W1 + W2 + W3 D1-D5 all landed: GitHub sync engine (ETag + incremental), IndexedDB storage, extension popup MVP with semantic search ("rust async runtime" → top-5 in <500ms via OpenAI embeddings), auto-tag (gpt-4o-mini generates 3-5 tags per repo), Obsidian plugin shell. **303 contract tests green** + end-to-end demo-gate smoke. CI gates typecheck + test + build on every push/PR. **Next: W4 — personalized AI weekly digest (P0 blue-ocean angle).**
 
 ## What this is
 

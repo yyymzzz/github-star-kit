@@ -2,7 +2,7 @@
 
 > 6-week MVP. Each week has a verifiable Friday demo gate.
 
-## Status: W3 Day 2 ✅ (embedding pipeline) — W1 + W2 + W3 D1 complete, 245 tests green, CI gated
+## Status: ✅ **W3 complete** — semantic search + auto-tag both wired through popup. W1 + W2 + W3 D1-D5 done, 303 tests green, end-to-end demo-gate smoke passing, CI gated. **Next: W4 AI weekly digest.**
 
 | Week | Theme | Demo gate (verifiable) |
 |---|---|---|
@@ -29,7 +29,7 @@ Lives in the parent plan: `C:\Users\admin\.claude\plans\github-star-app-reddit-s
 
 Progress:
 - **W2 ✅** — `chrome.alarms` 6h cron, Obsidian plugin wire-up (Settings + Sync command), cross-context sync mutex (`chrome.storage.local`, nonce-confirmed), full-vs-incremental hybrid sync with `starred_at` cursor.
-- **W3 🚧** — D1 done (VectorStore interface + in-memory cached-norm cosine baseline). D2 done (`@starkit/core/embedding`: `buildStarEmbeddingInput` + djb2 `contentHash` + `embedStars` orchestrator with batching, AbortSignal, per-batch failure isolation, and a contentHash skip-cache short-circuit). Next: D3 — wire `provider.embed` + `vectorStore.search` into popup for the "rust async runtime → top-5 in <500ms" demo gate; then D4 auto-tag.
+- **W3 ✅** — D1 VectorStore baseline (interface + MemoryVectorStore with cached-norm cosine), D2 embedding pipeline (`@starkit/core/embedding`: `buildStarEmbeddingInput` + djb2 `contentHash` + `embedStars` orchestrator with batching, AbortSignal, per-batch failure isolation, contentHash skip-cache short-circuit), D3 popup semantic search wiring (`IndexedDBVectorStore` adapter on schema v2, pre-fill MemoryVectorStore at popup mount, dual-upsert on embed, search rehydrate from starStore), D4 auto-tag (`@starkit/core/tagging`: TAG_SYSTEM_PROMPT + `tagStars` orchestrator with bounded concurrency, `parseTagResponse` defensive parser, tag chips render under each repo in popup), D5 demo-gate smoke (end-to-end pipeline test on fake-indexeddb, 20ms for 50 stars vs <500ms budget). R5 蓝军 surfaced + fixed a VectorLookupFn type-narrowness bug that would have blocked D3 popup wiring.
 - **Hardening (post-W3-D1)** — fixed P0 same-second incremental star-loss, P1 `pushed_at:null` sync abort, null `pushedAt` ordering; made un-star cleanup atomic (`deleteMany`, single IDB transaction).
 
 ## Risk tracker (linked to plan)
