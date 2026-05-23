@@ -26,8 +26,10 @@ import {
   formatError,
   formatRelativeTime,
   formatSyncSummary,
+  generateDigest,
   syncStarsWithStore,
   tagStars,
+  type DigestResult,
   type StarredRepo,
   type SyncCursor,
 } from '@starkit/core';
@@ -90,6 +92,7 @@ export function App(): JSX.Element {
   const [searchResults, setSearchResults] = useState<ReadonlyArray<SearchHit>>(
     []
   );
+  const [digest, setDigest] = useState<DigestResult | null>(null);
 
   // The popup-lifetime hot index. Pre-filled from IDB at mount; mutated by
   // every embed pass (dual-upsert) so it stays in sync without re-loading.
@@ -189,6 +192,7 @@ export function App(): JSX.Element {
       setLastSyncSummary(null);
       setSearchResults([]);
       setQuery('');
+      setDigest(null);
       setError(null);
     } catch (err) {
       setError(formatError(err));
@@ -345,6 +349,46 @@ export function App(): JSX.Element {
       setTagState('idle');
     }
   }, [openaiKey, tagState, untaggedCount]);
+
+  // ─── Weekly Digest: rank recently-pushed by relevance to user profile ──
+  const onShowDigest = useCallback(async () => {
+    if (indexedCount === 0) {
+      setError('Build the search index first to enable the weekly digest.');
+      return;
+    }
+    setError(null);
+    try {
+      const { starStore, vectorStore } = await getStores();
+      const result = await generateDigest({
+        starStore,
+        listVectors: async () => {
+          const rows = await vectorStore.list();
+          // Map vector rows -> {starId, vector}; drop rows whose metadata
+          // doesn't carry a numeric starId (defensive against future
+          // schema additions like W5 code-chunk rows that share the store).
+          const out: Array<{ starId: number; vector: ReadonlyArray<number> }> = [];
+          for (const r of rows) {
+            const sid = r.metadata?.['starId'];
+            if (typeof sid === 'number') {
+              out.push({ starId: sid, vector: r.vector });
+            }
+          }
+          return out;
+        },
+        windowDays: 7,
+        limit: 10,
+      });
+      setDigest(result);
+      setQuery(''); // Search query takes precedence; clear it so digest shows.
+      setSearchResults([]);
+    } catch (err) {
+      setError(formatError(err));
+    }
+  }, [indexedCount]);
+
+  const onCloseDigest = useCallback(() => {
+    setDigest(null);
+  }, []);
 
   // ─── Search ───────────────────────────────────────────────────────────
   const onSearch = useCallback(async () => {
@@ -522,16 +566,28 @@ export function App(): JSX.Element {
         </div>
       )}
 
-      {/* Auto-tag button — only when OpenAI key set + there's untagged work.
-          Doesn't depend on index being built; tagging is independent of search. */}
-      {openaiKey !== '' && untaggedCount > 0 && tagState === 'idle' && (
-        <button
-          type="button"
-          onClick={() => void onAutoTag()}
-          style={styles.secondaryButton}
-        >
-          Auto-tag {untaggedCount} repo{untaggedCount === 1 ? '' : 's'}
-        </button>
+      {/* Auto-tag + Weekly Digest action row */}
+      {openaiKey !== '' && (untaggedCount > 0 || indexedCount > 0) && (
+        <div style={styles.searchRow}>
+          {untaggedCount > 0 && tagState === 'idle' && (
+            <button
+              type="button"
+              onClick={() => void onAutoTag()}
+              style={{ ...styles.secondaryButton, flex: 1 }}
+            >
+              Auto-tag {untaggedCount} repo{untaggedCount === 1 ? '' : 's'}
+            </button>
+          )}
+          {indexedCount > 0 && !digest && (
+            <button
+              type="button"
+              onClick={() => void onShowDigest()}
+              style={{ ...styles.secondaryButton, flex: 1 }}
+            >
+              📰 Weekly digest
+            </button>
+          )}
+        </div>
       )}
 
       {tagState === 'tagging' && tagProgress && (
@@ -540,7 +596,10 @@ export function App(): JSX.Element {
         </div>
       )}
 
-      {/* Results list — search hits if query active, otherwise recent stars */}
+      {/* Results list — render priority:
+          1. Search has results: show them
+          2. Digest view active: show digest entries
+          3. Otherwise: top-10 most-recently-starred */}
       {showSearchResults ? (
         <ol style={styles.list}>
           {searchResults.map((hit) => (
@@ -549,6 +608,38 @@ export function App(): JSX.Element {
             </li>
           ))}
         </ol>
+      ) : digest !== null ? (
+        <>
+          <div style={styles.digestHeader}>
+            <span>
+              📰 Weekly digest — top {digest.entries.length} of{' '}
+              {digest.candidateCount} this week
+            </span>
+            <button
+              type="button"
+              onClick={onCloseDigest}
+              style={styles.linkButton}
+            >
+              ← Recent
+            </button>
+          </div>
+          {digest.entries.length === 0 ? (
+            <section style={styles.card}>
+              <strong>No recent activity.</strong>
+              <p style={styles.helpText}>
+                No starred repos have been pushed in the last 7 days.
+              </p>
+            </section>
+          ) : (
+            <ol style={styles.list}>
+              {digest.entries.map((entry) => (
+                <li key={entry.star.id} style={styles.listItem}>
+                  <RepoLink star={entry.star} score={entry.score} />
+                </li>
+              ))}
+            </ol>
+          )}
+        </>
       ) : stars.length === 0 ? (
         <section style={styles.card}>
           <strong>No stars cached yet.</strong>
@@ -764,6 +855,15 @@ const styles = {
     flexWrap: 'wrap' as const,
     gap: '4px',
     marginTop: '2px',
+  },
+  digestHeader: {
+    display: 'flex',
+    justifyContent: 'space-between' as const,
+    alignItems: 'center' as const,
+    fontSize: '11px',
+    fontWeight: 600,
+    opacity: 0.75,
+    padding: '4px 2px',
   },
   tagChip: {
     fontSize: '10px',

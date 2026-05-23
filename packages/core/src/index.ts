@@ -84,3 +84,16 @@ export type {
   TagStarsResult,
   UpdateStarTagsFn,
 } from './tagging/index.js';
+
+export {
+  computeInterestProfile,
+  digestCosine,
+  recencyBoost,
+  generateDigest,
+} from './digest/index.js';
+export type {
+  DigestEntry,
+  DigestResult,
+  GenerateDigestOptions,
+  ListVectorsFn,
+} from './digest/index.js';
