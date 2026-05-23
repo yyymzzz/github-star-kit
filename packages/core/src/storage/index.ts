@@ -24,4 +24,4 @@ export {
   IndexedDBKVStore,
   IndexedDBCursorStore,
 } from './idb.js';
-export type { StarKitDB, StarKitDBSchema } from './idb.js';
+export type { StarKitDB, StarKitDBSchema, IDBVectorRecord } from './idb.js';

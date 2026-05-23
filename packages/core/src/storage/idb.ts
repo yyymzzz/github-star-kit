@@ -28,6 +28,22 @@ import type {
   StarStoreUpsertResult,
 } from './types.js';
 
+/**
+ * Persistent shape of a vector row in IDB. Mirrors @starkit/vector's
+ * VectorRow but typed concretely here so the schema can reason about it
+ * without taking a runtime dependency on @starkit/vector. The vector
+ * package's IndexedDBVectorStore wraps a StarKitDB and reads/writes
+ * rows in this shape directly.
+ */
+export interface IDBVectorRecord {
+  /** Namespaced id — convention: `star:${githubId}`. Also the keyPath. */
+  readonly id: string;
+  /** Embedding vector. Number[] (not ReadonlyArray) for IDB serialization
+   *  symmetry — readonly is a TS-only attribute that IDB ignores. */
+  readonly vector: ReadonlyArray<number>;
+  readonly metadata?: Record<string, unknown>;
+}
+
 export interface StarKitDBSchema extends DBSchema {
   stars: {
     key: number;
@@ -40,17 +56,31 @@ export interface StarKitDBSchema extends DBSchema {
   };
   kv: { key: string; value: unknown };
   cursor: { key: string; value: SyncCursor };
+  /**
+   * Persistent vector index. Single store keyed by namespaced id (`star:N`
+   * for now; `code:N:chunk:K` will share this store in W5). No indexes —
+   * search is a full-scan loaded into memory anyway, and adding indexes
+   * would just slow writes without helping reads.
+   *
+   * Added in v2 (W3 D3). v1 → v2 migration creates this store from empty;
+   * existing stars / kv / cursor data is preserved.
+   */
+  vectors: { key: string; value: IDBVectorRecord };
 }
 
 export type StarKitDB = IDBPDatabase<StarKitDBSchema>;
 
 const DEFAULT_DB_NAME = 'starkit';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const CURSOR_KEY = 'default';
 
 /**
  * Open (or create) the StarKit IndexedDB database. Safe to call repeatedly —
  * idb's `openDB` returns the same connection for the same name.
+ *
+ * Migration story: the upgrade handler is additive only. Each `if (!contains)`
+ * guard lets a fresh install and a v1-upgrading install share the same code
+ * path. v1 → v2 introduced the `vectors` store; no existing data is touched.
  */
 export async function openStarKitDb(name = DEFAULT_DB_NAME): Promise<StarKitDB> {
   return openDB<StarKitDBSchema>(name, DB_VERSION, {
@@ -66,6 +96,10 @@ export async function openStarKitDb(name = DEFAULT_DB_NAME): Promise<StarKitDB> 
       }
       if (!db.objectStoreNames.contains('cursor')) {
         db.createObjectStore('cursor');
+      }
+      // v2 — vector index. Keyed by namespaced id (keyPath: 'id').
+      if (!db.objectStoreNames.contains('vectors')) {
+        db.createObjectStore('vectors', { keyPath: 'id' });
       }
     },
   });

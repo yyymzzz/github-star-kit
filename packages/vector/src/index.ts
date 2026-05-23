@@ -21,3 +21,4 @@ export type {
 export { cosineSimilarity } from './types.js';
 
 export { MemoryVectorStore } from './memory.js';
+export { IndexedDBVectorStore } from './idb.js';

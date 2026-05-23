@@ -1,22 +1,28 @@
 /**
- * W1 Day 5 — popup MVP (W1 demo gate).
+ * W3 Day 3 — popup with semantic search wiring.
  *
- * Flow:
- *   1. On mount, read PAT from IndexedDBKVStore + cached stars + cursor.
- *   2. No PAT yet → render an input + Save.
- *   3. Has PAT, no cached stars → "Sync" button + empty state.
- *   4. Has PAT + cached stars → top-10 by starredAt DESC + "Sync" in header.
+ * Mode progression (state machine, top-to-bottom in render):
+ *   1. no PAT          → render PAT input
+ *   2. PAT set, no key → render OpenAI key input + cached stars (no search)
+ *   3. both keys, no index → "Build search index" + cached stars
+ *   4. both + index ready → search bar live; empty query = top-10 stars,
+ *                           non-empty = top-5 semantic results
  *
- * Error UX: GithubError.kind → friendly text inline. No toast. No spinner
- * library — a single boolean state suffices for "syncing".
+ * State machine compresses linearly: each unlock reveals one new affordance.
+ * The user can always re-open settings to rotate keys or rebuild.
  *
- * Style: inline objects (Day 1 contract). Tailwind / shadcn enters in W3
- * when the surface area justifies it (Musk Algorithm — don't optimize what
- * isn't there).
+ * Search performance budget (W3 demo gate): "rust async runtime" → top-5 in
+ * <500ms. Breakdown on 1000 stars × 1536-dim:
+ *   - query embed (1 OpenAI call):  ~150-300ms
+ *   - cosine top-K in memory store:  ~5ms
+ *   - starStore.getMany rehydrate:   ~10ms (IDB warm)
+ *   - render:                        ~5ms
+ *   Total: ~200-350ms, well under budget.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createGithubClient,
+  embedStars,
   formatError,
   formatRelativeTime,
   formatSyncSummary,
@@ -24,42 +30,88 @@ import {
   type StarredRepo,
   type SyncCursor,
 } from '@starkit/core';
+import { createProvider } from '@starkit/ai';
+import { MemoryVectorStore, type VectorSearchResult } from '@starkit/vector';
 import { releaseSyncLock, tryAcquireSyncLock } from '../shared/lock.js';
-import { KV_KEY_PAT, getStores } from './db.js';
+import { KV_KEY_OPENAI_KEY, KV_KEY_PAT, getStores } from './db.js';
 
 /** Identifier the popup uses when grabbing the cross-context sync lock. */
 const POPUP_OWNER_ID = 'popup-manual';
 
+/** Default embed model — text-embedding-3-small balances cost ($0.02/M tokens)
+ *  with quality. Future settings UI may swap this. */
+const DEFAULT_EMBED_MODEL = 'text-embedding-3-small';
+
 type SyncState = 'idle' | 'syncing';
+type EmbedState = 'idle' | 'embedding';
+type SearchState = 'idle' | 'searching';
+
+interface SearchHit {
+  readonly star: StarredRepo;
+  readonly score: number;
+}
 
 export function App(): JSX.Element {
-  // null = still loading from IDB; string = persisted value; '' = user clearing
+  // null = loading from IDB; string = persisted value; '' = user clearing
   const [pat, setPat] = useState<string | null>(null);
   const [patDraft, setPatDraft] = useState<string>('');
+  const [openaiKey, setOpenaiKey] = useState<string | null>(null);
+  const [openaiKeyDraft, setOpenaiKeyDraft] = useState<string>('');
+
   const [stars, setStars] = useState<ReadonlyArray<StarredRepo>>([]);
   const [knownCount, setKnownCount] = useState<number>(0);
+  const [indexedCount, setIndexedCount] = useState<number>(0);
   const [cursor, setCursor] = useState<SyncCursor | null>(null);
+
   const [syncState, setSyncState] = useState<SyncState>('idle');
+  const [embedState, setEmbedState] = useState<EmbedState>('idle');
+  const [searchState, setSearchState] = useState<SearchState>('idle');
+
   const [error, setError] = useState<string | null>(null);
   const [lastSyncSummary, setLastSyncSummary] = useState<string | null>(null);
+  const [indexProgress, setIndexProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
 
-  // Initial load from IDB
+  const [query, setQuery] = useState<string>('');
+  const [searchResults, setSearchResults] = useState<ReadonlyArray<SearchHit>>(
+    []
+  );
+
+  // The popup-lifetime hot index. Pre-filled from IDB at mount; mutated by
+  // every embed pass (dual-upsert) so it stays in sync without re-loading.
+  const memVecRef = useRef<MemoryVectorStore | null>(null);
+
+  // ─── Initial load ─────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        const { starStore, cursorStore, kvStore } = await getStores();
-        const [storedPat, top, cnt, cur] = await Promise.all([
-          kvStore.get<string>(KV_KEY_PAT),
-          starStore.list({ limit: 10 }),
-          starStore.count(),
-          cursorStore.get(),
-        ]);
+        const stores = await getStores();
+        const [storedPat, storedKey, top, cnt, cur, vecRows] =
+          await Promise.all([
+            stores.kvStore.get<string>(KV_KEY_PAT),
+            stores.kvStore.get<string>(KV_KEY_OPENAI_KEY),
+            stores.starStore.list({ limit: 10 }),
+            stores.starStore.count(),
+            stores.cursorStore.get(),
+            stores.vectorStore.list(),
+          ]);
         if (cancelled) return;
+
+        // Hot-seed the memory store. ~12MB for 1000×1536 — well within popup
+        // budget. memVecRef survives across React re-renders.
+        const mem = new MemoryVectorStore();
+        await mem.upsertMany(vecRows);
+        memVecRef.current = mem;
+
         setPat(storedPat ?? '');
+        setOpenaiKey(storedKey ?? '');
         setStars(top);
         setKnownCount(cnt);
         setCursor(cur);
+        setIndexedCount(vecRows.length);
       } catch (err) {
         if (!cancelled) setError(formatError(err));
       }
@@ -69,6 +121,7 @@ export function App(): JSX.Element {
     };
   }, []);
 
+  // ─── Settings handlers ────────────────────────────────────────────────
   const onSavePat = useCallback(async () => {
     const trimmed = patDraft.trim();
     if (!trimmed) return;
@@ -83,33 +136,52 @@ export function App(): JSX.Element {
     }
   }, [patDraft]);
 
-  const onClearPat = useCallback(async () => {
+  const onSaveOpenaiKey = useCallback(async () => {
+    const trimmed = openaiKeyDraft.trim();
+    if (!trimmed) return;
     try {
-      const { kvStore, starStore, cursorStore } = await getStores();
+      const { kvStore } = await getStores();
+      await kvStore.set(KV_KEY_OPENAI_KEY, trimmed);
+      setOpenaiKey(trimmed);
+      setOpenaiKeyDraft('');
+      setError(null);
+    } catch (err) {
+      setError(formatError(err));
+    }
+  }, [openaiKeyDraft]);
+
+  const onClearAll = useCallback(async () => {
+    try {
+      const { kvStore, starStore, cursorStore, vectorStore } = await getStores();
       await Promise.all([
         kvStore.delete(KV_KEY_PAT),
+        kvStore.delete(KV_KEY_OPENAI_KEY),
         starStore.clear(),
         cursorStore.clear(),
+        vectorStore.clear(),
       ]);
+      memVecRef.current = new MemoryVectorStore();
       setPat('');
+      setOpenaiKey('');
       setStars([]);
       setKnownCount(0);
+      setIndexedCount(0);
       setCursor(null);
       setLastSyncSummary(null);
+      setSearchResults([]);
+      setQuery('');
       setError(null);
     } catch (err) {
       setError(formatError(err));
     }
   }, []);
 
+  // ─── Sync handler ─────────────────────────────────────────────────────
   const onSync = useCallback(async () => {
     if (!pat) return;
     setSyncState('syncing');
     setError(null);
 
-    // Cross-context mutex — if the service-worker cron is mid-sync we'd
-    // otherwise burn double GitHub quota. Lock auto-expires after 2 min
-    // on stale to recover from evicted-worker scenarios.
     const lockAcquired = await tryAcquireSyncLock(POPUP_OWNER_ID);
     if (!lockAcquired) {
       setError('Another sync is running in the background. Try again in a moment.');
@@ -141,10 +213,126 @@ export function App(): JSX.Element {
     }
   }, [pat]);
 
-  // ─── Render ────────────────────────────────────────────────────────
+  // ─── Embed: build search index ────────────────────────────────────────
+  const onBuildIndex = useCallback(async () => {
+    if (!openaiKey || embedState === 'embedding') return;
+    setEmbedState('embedding');
+    setIndexProgress({ done: 0, total: knownCount });
+    setError(null);
 
-  if (pat === null) {
-    // Initial IDB load still pending
+    try {
+      const { starStore, vectorStore } = await getStores();
+      const provider = createProvider({
+        provider: 'openai',
+        apiKey: openaiKey,
+        embedModel: DEFAULT_EMBED_MODEL,
+      });
+      const memVec = memVecRef.current ?? new MemoryVectorStore();
+      memVecRef.current = memVec;
+
+      await embedStars({
+        starStore,
+        // Adapter: AIProvider.embed takes an EmbedRequest object;
+        // EmbedBatchFn wants positional (inputs, signal).
+        embed: (inputs, signal) =>
+          provider.embed({ inputs, ...(signal ? { signal } : {}) }).then((r) => ({
+            vectors: r.vectors,
+            model: r.model,
+            inputTokens: r.inputTokens,
+          })),
+        // Dual-upsert: persistent IDB store + hot memory index. Parallelized
+        // because the two stores are independent — IDB latency doesn't gate
+        // memory's instant update.
+        upsert: async (rows) => {
+          const [idbResult] = await Promise.all([
+            vectorStore.upsertMany(rows),
+            memVec.upsertMany(rows),
+          ]);
+          return idbResult;
+        },
+        // Hash-based skip-cache → vectorStore.get returns rows whose
+        // metadata.contentHash we already know. Loosened VectorLookupFn
+        // makes this assignment direct (R5 fix).
+        getExisting: (id) => vectorStore.get(id),
+        onProgress: (done, total) => setIndexProgress({ done, total }),
+      });
+
+      const newCount = await vectorStore.count();
+      setIndexedCount(newCount);
+      setIndexProgress(null);
+    } catch (err) {
+      setError(formatError(err));
+    } finally {
+      setEmbedState('idle');
+    }
+  }, [openaiKey, embedState, knownCount]);
+
+  // ─── Search ───────────────────────────────────────────────────────────
+  const onSearch = useCallback(async () => {
+    const trimmed = query.trim();
+    if (!trimmed || !openaiKey) {
+      setSearchResults([]);
+      return;
+    }
+    if (!memVecRef.current || indexedCount === 0) {
+      setError('Build the search index first.');
+      return;
+    }
+    setSearchState('searching');
+    setError(null);
+
+    try {
+      const provider = createProvider({
+        provider: 'openai',
+        apiKey: openaiKey,
+        embedModel: DEFAULT_EMBED_MODEL,
+      });
+      const { vectors } = await provider.embed({ inputs: [trimmed] });
+      const qVec = vectors[0]!;
+      const hits = await memVecRef.current.search(qVec, { limit: 5 });
+
+      // Rehydrate StarredRepo for each hit. metadata.starId was stamped at
+      // embed time; if a hit's row predates the schema and lacks it we skip.
+      const { starStore } = await getStores();
+      const rehydrated = await Promise.all(
+        hits.map(async (h: VectorSearchResult): Promise<SearchHit | null> => {
+          const starId =
+            typeof h.metadata?.['starId'] === 'number'
+              ? (h.metadata['starId'] as number)
+              : null;
+          if (starId === null) return null;
+          const star = await starStore.get(starId);
+          if (!star) return null;
+          return { star, score: h.score };
+        })
+      );
+      setSearchResults(rehydrated.filter((r): r is SearchHit => r !== null));
+    } catch (err) {
+      setError(formatError(err));
+      setSearchResults([]);
+    } finally {
+      setSearchState('idle');
+    }
+  }, [query, openaiKey, indexedCount]);
+
+  // Clear search results when query is wiped
+  useEffect(() => {
+    if (query.trim() === '') setSearchResults([]);
+  }, [query]);
+
+  // ─── Derived view state ───────────────────────────────────────────────
+  const indexCoverage = useMemo(() => {
+    if (knownCount === 0) return null;
+    return Math.round((indexedCount / knownCount) * 100);
+  }, [indexedCount, knownCount]);
+
+  const needsRebuild = knownCount > 0 && indexedCount < knownCount;
+  const canSearch = indexedCount > 0 && openaiKey !== null && openaiKey !== '';
+  const showSearchResults = query.trim() !== '' && searchResults.length > 0;
+
+  // ─── Render ───────────────────────────────────────────────────────────
+
+  if (pat === null || openaiKey === null) {
     return (
       <main style={styles.shell}>
         <Header subtitle="loading…" />
@@ -156,36 +344,14 @@ export function App(): JSX.Element {
     return (
       <main style={styles.shell}>
         <Header subtitle="paste a GitHub PAT to begin" />
-        <section style={styles.card}>
-          <label style={styles.label} htmlFor="pat-input">
-            GitHub Personal Access Token
-          </label>
-          <input
-            id="pat-input"
-            type="password"
-            placeholder="ghp_…"
-            autoComplete="off"
-            value={patDraft}
-            onChange={(e) => setPatDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void onSavePat();
-            }}
-            style={styles.input}
-          />
-          <p style={styles.helpText}>
-            Needs <code>public_repo</code> scope (or <code>repo</code> for private
-            stars). We store it in chrome IndexedDB and never transmit it
-            anywhere except api.github.com.
-          </p>
-          <button
-            type="button"
-            onClick={() => void onSavePat()}
-            disabled={patDraft.trim().length === 0}
-            style={styles.primaryButton}
-          >
-            Save token
-          </button>
-        </section>
+        <SettingsCard
+          label="GitHub Personal Access Token"
+          help="Needs public_repo scope (or repo for private). Stored locally; sent only to api.github.com."
+          placeholder="ghp_…"
+          value={patDraft}
+          onChange={setPatDraft}
+          onSave={() => void onSavePat()}
+        />
         {error && <ErrorBanner message={error} />}
       </main>
     );
@@ -196,8 +362,10 @@ export function App(): JSX.Element {
       <Header
         subtitle={
           cursor
-            ? `${knownCount} stars · last synced ${formatRelativeTime(cursor.updatedAt)}`
-            : `${knownCount} stars · never synced`
+            ? `${knownCount} stars · ${indexedCount} indexed · last synced ${formatRelativeTime(
+                cursor.updatedAt
+              )}`
+            : `${knownCount} stars · ${indexedCount} indexed · never synced`
         }
         rightAction={
           <button
@@ -216,40 +384,94 @@ export function App(): JSX.Element {
         <div style={styles.notice}>{lastSyncSummary}</div>
       )}
 
-      {stars.length === 0 ? (
+      {/* Search bar — always rendered when keys are set, but onSearch
+          guards against running without an index. */}
+      {canSearch && (
+        <div style={styles.searchRow}>
+          <input
+            type="search"
+            placeholder="Search starred repos… (semantic)"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void onSearch();
+            }}
+            style={styles.searchInput}
+          />
+          <button
+            type="button"
+            onClick={() => void onSearch()}
+            disabled={searchState === 'searching' || query.trim() === ''}
+            style={styles.smallButton}
+          >
+            {searchState === 'searching' ? '…' : 'Go'}
+          </button>
+        </div>
+      )}
+
+      {/* OpenAI key section — only when missing; shows under the search row
+          so a configured user doesn't see it. */}
+      {openaiKey === '' && (
+        <SettingsCard
+          label="OpenAI API Key (for search)"
+          help="Used only for embedding your starred repos. Stored locally; sent only to api.openai.com. ~$0.02 to index 1000 stars."
+          placeholder="sk-…"
+          value={openaiKeyDraft}
+          onChange={setOpenaiKeyDraft}
+          onSave={() => void onSaveOpenaiKey()}
+        />
+      )}
+
+      {/* Build index button — gated on having OpenAI key + stars to index */}
+      {openaiKey !== '' && needsRebuild && embedState === 'idle' && (
+        <button
+          type="button"
+          onClick={() => void onBuildIndex()}
+          disabled={knownCount === 0}
+          style={styles.primaryButton}
+        >
+          {indexedCount === 0
+            ? `Build search index (${knownCount} stars)`
+            : `Update search index (${knownCount - indexedCount} new)`}
+        </button>
+      )}
+
+      {embedState === 'embedding' && indexProgress && (
+        <div style={styles.notice}>
+          Embedding {indexProgress.done}/{indexProgress.total}
+          {indexCoverage !== null ? ` · ${indexCoverage}% indexed` : ''}…
+        </div>
+      )}
+
+      {/* Results list — search hits if query active, otherwise recent stars */}
+      {showSearchResults ? (
+        <ol style={styles.list}>
+          {searchResults.map((hit) => (
+            <li key={hit.star.id} style={styles.listItem}>
+              <RepoLink star={hit.star} score={hit.score} />
+            </li>
+          ))}
+        </ol>
+      ) : stars.length === 0 ? (
         <section style={styles.card}>
           <strong>No stars cached yet.</strong>
-          <p style={styles.helpText}>Click <b>Sync</b> to pull your stars from GitHub.</p>
+          <p style={styles.helpText}>
+            Click <b>Sync</b> to pull your stars from GitHub.
+          </p>
         </section>
       ) : (
         <ol style={styles.list}>
           {stars.map((s) => (
             <li key={s.id} style={styles.listItem}>
-              <a
-                href={s.htmlUrl}
-                target="_blank"
-                rel="noreferrer"
-                style={styles.repoLink}
-                title={s.description ?? undefined}
-              >
-                <span style={styles.repoName}>{s.fullName}</span>
-                {s.language && <span style={styles.repoLang}>{s.language}</span>}
-              </a>
-              {s.description && (
-                <div style={styles.repoDesc}>{truncate(s.description, 120)}</div>
-              )}
-              <div style={styles.repoMeta}>
-                ★ {s.stargazersCount.toLocaleString()} · starred{' '}
-                {formatRelativeTime(s.starredAt)}
-              </div>
+              <RepoLink star={s} />
             </li>
           ))}
         </ol>
       )}
 
       <footer style={styles.footer}>
-        <button type="button" onClick={() => void onClearPat()} style={styles.linkButton}>
-          Reset PAT &amp; clear cache
+        <button type="button" onClick={() => void onClearAll()} style={styles.linkButton}>
+          Reset keys &amp; clear cache
         </button>
       </footer>
     </main>
@@ -281,16 +503,81 @@ function ErrorBanner(props: { readonly message: string }): JSX.Element {
   );
 }
 
+function SettingsCard(props: {
+  readonly label: string;
+  readonly help: string;
+  readonly placeholder: string;
+  readonly value: string;
+  readonly onChange: (v: string) => void;
+  readonly onSave: () => void;
+}): JSX.Element {
+  return (
+    <section style={styles.card}>
+      <label style={styles.label}>{props.label}</label>
+      <input
+        type="password"
+        placeholder={props.placeholder}
+        autoComplete="off"
+        value={props.value}
+        onChange={(e) => props.onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') props.onSave();
+        }}
+        style={styles.input}
+      />
+      <p style={styles.helpText}>{props.help}</p>
+      <button
+        type="button"
+        onClick={props.onSave}
+        disabled={props.value.trim().length === 0}
+        style={styles.primaryButton}
+      >
+        Save
+      </button>
+    </section>
+  );
+}
+
+function RepoLink(props: {
+  readonly star: StarredRepo;
+  readonly score?: number;
+}): JSX.Element {
+  const { star, score } = props;
+  return (
+    <>
+      <a
+        href={star.htmlUrl}
+        target="_blank"
+        rel="noreferrer"
+        style={styles.repoLink}
+        title={star.description ?? undefined}
+      >
+        <span style={styles.repoName}>{star.fullName}</span>
+        <span style={styles.repoMetaRight}>
+          {score !== undefined && (
+            <span style={styles.scoreBadge}>{score.toFixed(2)}</span>
+          )}
+          {star.language && <span style={styles.repoLang}>{star.language}</span>}
+        </span>
+      </a>
+      {star.description && (
+        <div style={styles.repoDesc}>{truncate(star.description, 120)}</div>
+      )}
+      <div style={styles.repoMeta}>
+        ★ {star.stargazersCount.toLocaleString()} · starred{' '}
+        {formatRelativeTime(star.starredAt)}
+      </div>
+    </>
+  );
+}
+
 // ─── Formatters ───────────────────────────────────────────────────────
-// githubErrorMessage / formatError / formatSyncSummary / formatRelativeTime
-// live in @starkit/core (shared with the Obsidian plugin). `truncate` is
-// popup-presentation-specific and stays local.
 
 function truncate(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n - 1).trimEnd() + '…';
 }
 
-// ─── Styles (Day 1 inline contract) ───────────────────────────────────
+// ─── Styles ───────────────────────────────────────────────────────────
 
 const styles = {
   shell: {
@@ -299,6 +586,7 @@ const styles = {
     flexDirection: 'column' as const,
     gap: '12px',
     minHeight: '480px',
+    minWidth: '380px',
   },
   header: {
     display: 'flex',
@@ -374,6 +662,20 @@ const styles = {
     padding: 0,
     cursor: 'pointer',
   },
+  searchRow: {
+    display: 'flex',
+    gap: '6px',
+    alignItems: 'center' as const,
+  },
+  searchInput: {
+    flex: 1,
+    padding: '7px 10px',
+    border: '1px solid rgba(127, 127, 127, 0.3)',
+    borderRadius: '6px',
+    fontSize: '13px',
+    background: 'transparent',
+    color: 'inherit',
+  },
   list: {
     margin: 0,
     padding: 0,
@@ -402,10 +704,23 @@ const styles = {
     fontWeight: 600,
     fontSize: '13px',
   },
+  repoMetaRight: {
+    display: 'flex',
+    gap: '6px',
+    alignItems: 'baseline' as const,
+    flexShrink: 0,
+  },
   repoLang: {
     fontSize: '10px',
     opacity: 0.6,
-    flexShrink: 0,
+  },
+  scoreBadge: {
+    fontSize: '10px',
+    fontFamily: 'ui-monospace, monospace',
+    padding: '1px 5px',
+    background: 'rgba(34, 197, 94, 0.15)',
+    color: 'rgb(22, 101, 52)',
+    borderRadius: '3px',
   },
   repoDesc: {
     fontSize: '12px',

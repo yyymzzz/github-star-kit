@@ -16,6 +16,7 @@ import {
   openStarKitDb,
   type StarKitDB,
 } from '@starkit/core';
+import { IndexedDBVectorStore } from '@starkit/vector';
 
 let dbPromise: Promise<StarKitDB> | null = null;
 
@@ -31,6 +32,9 @@ export interface PopupStores {
   readonly starStore: IndexedDBStarStore;
   readonly cursorStore: IndexedDBCursorStore;
   readonly kvStore: IndexedDBKVStore;
+  /** Persistent vector index. Paired with a transient MemoryVectorStore at
+   *  popup mount for hot search; both receive writes on embed (dual-upsert). */
+  readonly vectorStore: IndexedDBVectorStore;
 }
 
 export async function getStores(): Promise<PopupStores> {
@@ -40,10 +44,11 @@ export async function getStores(): Promise<PopupStores> {
     starStore: new IndexedDBStarStore(db),
     cursorStore: new IndexedDBCursorStore(db),
     kvStore: new IndexedDBKVStore(db),
+    vectorStore: new IndexedDBVectorStore(db),
   };
 }
 
-// PAT kv key now lives in ../shared/keys.ts so the service worker can
-// reference it without importing popup-specific React code. Re-export keeps
-// existing popup imports working unchanged.
-export { KV_KEY_PAT } from '../shared/keys.js';
+// PAT + OpenAI API key kv keys live in ../shared/keys.ts so the service
+// worker can reference them without importing popup-specific React code.
+// Re-exported here so existing popup imports keep working.
+export { KV_KEY_PAT, KV_KEY_OPENAI_KEY } from '../shared/keys.js';

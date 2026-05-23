@@ -167,6 +167,36 @@ describe('MemoryVectorStore.get / delete / clear', () => {
   });
 });
 
+describe('MemoryVectorStore.list', () => {
+  it('returns empty array for empty store', async () => {
+    const store = new MemoryVectorStore();
+    expect(await store.list()).toEqual([]);
+  });
+
+  it('returns every row written, preserving metadata', async () => {
+    const store = new MemoryVectorStore();
+    await store.upsertMany([
+      row('a', v(1, 0), { tag: 'first' }),
+      row('b', v(0, 1)),
+      row('c', v(1, 1), { tag: 'third' }),
+    ]);
+    const listed = await store.list();
+    expect(listed).toHaveLength(3);
+    const byId = new Map(listed.map((r) => [r.id, r]));
+    expect(byId.get('a')?.metadata?.['tag']).toBe('first');
+    expect(byId.get('b')?.metadata).toBeUndefined();
+    expect(byId.get('c')?.metadata?.['tag']).toBe('third');
+  });
+
+  it('reflects deletes', async () => {
+    const store = new MemoryVectorStore();
+    await store.upsertMany([row('a', v(1, 0)), row('b', v(0, 1))]);
+    await store.delete('a');
+    const listed = await store.list();
+    expect(listed.map((r) => r.id)).toEqual(['b']);
+  });
+});
+
 // ─── Realistic-scale smoke ────────────────────────────────────────────
 
 describe('MemoryVectorStore — realistic-scale smoke', () => {

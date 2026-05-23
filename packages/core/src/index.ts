@@ -55,6 +55,7 @@ export type {
   CursorStore,
   StarKitDB,
   StarKitDBSchema,
+  IDBVectorRecord,
 } from './storage/index.js';
 
 export {

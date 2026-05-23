@@ -68,6 +68,15 @@ export class MemoryVectorStore implements VectorStore {
     this.byId.clear();
   }
 
+  async list(): Promise<ReadonlyArray<VectorRow>> {
+    // Map iteration is insertion order; callers that need a different order
+    // sort downstream. Returning the cached row (not the InternalRow) so the
+    // norm-cache implementation detail stays inside the class.
+    const out: VectorRow[] = [];
+    for (const entry of this.byId.values()) out.push(entry.row);
+    return out;
+  }
+
   async search(
     query: ReadonlyArray<number>,
     options: VectorSearchOptions = {}

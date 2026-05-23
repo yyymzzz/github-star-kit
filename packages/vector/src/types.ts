@@ -73,6 +73,18 @@ export interface VectorStore {
   count(): Promise<number>;
 
   clear(): Promise<void>;
+
+  /**
+   * Return every row in the store, unordered. Powers the popup's mount-time
+   * load (IDB → MemoryVectorStore) where the persistent backing seeds the
+   * hot in-memory index. Iteration order is implementation-defined; callers
+   * that care about order must sort downstream.
+   *
+   * For multi-million-row stores this is obviously the wrong API — at that
+   * point the caller wants a cursor / paged iteration. v1 caps at ~10k stars
+   * so an Array materialization is fine and keeps the surface tiny.
+   */
+  list(): Promise<ReadonlyArray<VectorRow>>;
 }
 
 /**
