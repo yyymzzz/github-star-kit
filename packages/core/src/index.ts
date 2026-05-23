@@ -56,3 +56,17 @@ export type {
   StarKitDB,
   StarKitDBSchema,
 } from './storage/index.js';
+
+export {
+  buildStarEmbeddingInput,
+  contentHash,
+  embedStars,
+} from './embedding/index.js';
+export type {
+  EmbedBatchFn,
+  EmbedStarsOptions,
+  EmbedStarsResult,
+  EmbeddingRow,
+  VectorLookupFn,
+  VectorUpsertFn,
+} from './embedding/index.js';
