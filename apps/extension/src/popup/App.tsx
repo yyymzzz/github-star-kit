@@ -28,6 +28,7 @@ import {
   formatRelativeTime,
   formatSyncSummary,
   generateDigest,
+  GithubError,
   indexRepoCode,
   summarizeDigestEntries,
   syncStarsWithStore,
@@ -120,6 +121,14 @@ export function App(): JSX.Element {
   const [deepIndexedCount, setDeepIndexedCount] = useState<number>(0);
 
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Epoch-ms when the rate-limit cooldown clears. Set when a GithubError
+   * with kind=rate_limit lands; the Sync button stays disabled until
+   * `Date.now() >= rateLimitResetAt`. R10 蓝军 fix #8 — without this the
+   * user could click Sync repeatedly during the cap window and get the
+   * same red banner without understanding why.
+   */
+  const [rateLimitResetAt, setRateLimitResetAt] = useState<number | null>(null);
   const [lastSyncSummary, setLastSyncSummary] = useState<string | null>(null);
   const [indexProgress, setIndexProgress] = useState<{
     done: number;
@@ -139,6 +148,14 @@ export function App(): JSX.Element {
   // The popup-lifetime hot index. Pre-filled from IDB at mount; mutated by
   // every embed pass (dual-upsert) so it stays in sync without re-loading.
   const memVecRef = useRef<MemoryVectorStore | null>(null);
+
+  // Generation counter for digest invocations. Incremented at the start
+  // of every onShowDigest; the async summary block writes back only when
+  // its captured generation still matches. Prevents a slow ~3s
+  // summarizeDigestEntries from clobbering newer state if the user
+  // re-triggered, cleared, or reset between the trigger and the write.
+  // R10 蓝军 fix #9.
+  const digestGenRef = useRef<number>(0);
 
   // ─── Initial load ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -241,6 +258,9 @@ export function App(): JSX.Element {
       setLastSyncSummary(null);
       setSearchResults([]);
       setQuery('');
+      // Bump digest generation so any in-flight summarize from before
+      // the reset can't write back stale state. R10 蓝军 fix #9.
+      digestGenRef.current += 1;
       setDigest(null);
       setError(null);
     } catch (err) {
@@ -282,9 +302,22 @@ export function App(): JSX.Element {
       setUntaggedCount(all.filter((s) => s.aiTags.length === 0).length);
       // R9 蓝军 fix C1: clear stale digest after sync — its ranks are now
       // computed against pre-sync data and could mislead the user.
+      digestGenRef.current += 1;
       setDigest(null);
+      // Successful sync clears any prior rate-limit cooldown.
+      setRateLimitResetAt(null);
     } catch (err) {
       setError(formatError(err));
+      // R10 蓝军 fix #8: structured rate-limit handling. If GitHub returned
+      // a 403/429 with a Retry-After / x-ratelimit-reset, persist the
+      // deadline so the button stays disabled + the user sees a countdown
+      // instead of a generic "rate limit" message and no recovery hint.
+      if (err instanceof GithubError && err.kind === 'rate_limit') {
+        const sec = err.context.rateLimitResetSeconds;
+        if (typeof sec === 'number' && sec > 0) {
+          setRateLimitResetAt(Date.now() + sec * 1000);
+        }
+      }
     } finally {
       await releaseSyncLock(POPUP_OWNER_ID);
       setSyncState('idle');
@@ -511,6 +544,11 @@ export function App(): JSX.Element {
       return;
     }
     setError(null);
+    // Take a new generation token. Any prior in-flight summarize that's
+    // still running at write-time will see its captured generation no
+    // longer match and abort its setDigest write.
+    digestGenRef.current += 1;
+    const myGen = digestGenRef.current;
     try {
       const { starStore, vectorStore } = await getStores();
       const result = await generateDigest({
@@ -532,6 +570,9 @@ export function App(): JSX.Element {
         windowDays: 7,
         limit: 10,
       });
+      // First write: ranking only. If a later invocation already bumped
+      // the generation, this is a stale call — bail without touching state.
+      if (digestGenRef.current !== myGen) return;
       setDigest(result);
       setQuery(''); // Search query takes precedence; clear it so digest shows.
       setSearchResults([]);
@@ -561,6 +602,10 @@ export function App(): JSX.Element {
                 })),
             { concurrency: 3 }
           );
+          // Second write: summaries layered on. Same generation gate —
+          // a new onShowDigest / onClearAll / re-embed in the ~3s window
+          // bumped the generation, so the summary write is now stale.
+          if (digestGenRef.current !== myGen) return;
           setDigest({ ...result, entries: withSummaries });
         } catch (sumErr) {
           // Summary layer is best-effort. Log + leave ranked list as-is.
@@ -573,6 +618,9 @@ export function App(): JSX.Element {
   }, [indexedCount, openaiKey]);
 
   const onCloseDigest = useCallback(() => {
+    // Bump generation too — a pending summarize() from a re-open during
+    // close-then-reopen cycle should never write back over the new view.
+    digestGenRef.current += 1;
     setDigest(null);
   }, []);
 
@@ -670,6 +718,14 @@ export function App(): JSX.Element {
   const needsRebuild = knownCount > 0 && indexedCount < knownCount;
   const canSearch = indexedCount > 0 && openaiKey !== null && openaiKey !== '';
   const showSearchResults = query.trim() !== '' && searchResults.length > 0;
+  // Re-derived on every render so countdown stays accurate without a
+  // setInterval (popup is a short-lived view; re-renders happen often
+  // enough on user input that ~minute precision is fine).
+  const rateLimitedFor =
+    rateLimitResetAt !== null
+      ? Math.max(0, Math.ceil((rateLimitResetAt - Date.now()) / 1000))
+      : 0;
+  const rateLimited = rateLimitedFor > 0;
 
   // ─── Render ───────────────────────────────────────────────────────────
 
@@ -712,10 +768,19 @@ export function App(): JSX.Element {
           <button
             type="button"
             onClick={() => void onSync()}
-            disabled={syncState === 'syncing'}
+            disabled={syncState === 'syncing' || rateLimited}
+            title={
+              rateLimited
+                ? `Rate-limited by GitHub. Retry in ${Math.ceil(rateLimitedFor / 60)} min.`
+                : undefined
+            }
             style={styles.smallButton}
           >
-            {syncState === 'syncing' ? 'Syncing…' : 'Sync'}
+            {syncState === 'syncing'
+              ? 'Syncing…'
+              : rateLimited
+                ? `Wait ${Math.ceil(rateLimitedFor / 60)}m`
+                : 'Sync'}
           </button>
         }
       />

@@ -5,7 +5,7 @@
     "outDir": "./dist",
     "noEmit": true,
     "jsx": "react-jsx",
-    "types": ["chrome", "node"],
+    "types": ["chrome", "node", "vite/client"],
     "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"]
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],

@@ -16,6 +16,16 @@
 import { ALARM_NAME, SYNC_INTERVAL_MIN } from '../shared/keys.js';
 import { formatCronOutcome, runScheduledSync } from './cron.js';
 
+/**
+ * Gate informational logging on the Vite-injected `import.meta.env.DEV` flag.
+ * Errors / warnings always print — they signal real problems users may need
+ * to debug. Routine "alarm fired, sync 304" chatter only prints in dev so
+ * production users don't see console noise. R10 蓝军 fix #12.
+ */
+const devLog = (...args: unknown[]): void => {
+  if (import.meta.env.DEV) console.info(...args);
+};
+
 async function ensureSyncAlarm(): Promise<void> {
   const existing = await chrome.alarms.get(ALARM_NAME);
   if (existing) return;
@@ -23,20 +33,20 @@ async function ensureSyncAlarm(): Promise<void> {
     delayInMinutes: 1,
     periodInMinutes: SYNC_INTERVAL_MIN,
   });
-  console.info(
+  devLog(
     `[starkit] alarm '${ALARM_NAME}' scheduled (every ${SYNC_INTERVAL_MIN} min)`
   );
 }
 
 chrome.runtime.onInstalled.addListener((details) => {
-  console.info('[starkit] installed', details.reason);
+  devLog('[starkit] installed', details.reason);
   ensureSyncAlarm().catch((err: unknown) =>
     console.warn('[starkit] alarm setup failed:', err)
   );
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  console.info('[starkit] browser startup');
+  devLog('[starkit] browser startup');
   ensureSyncAlarm().catch((err: unknown) =>
     console.warn('[starkit] alarm setup failed:', err)
   );
@@ -47,7 +57,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   void (async () => {
     try {
       const outcome = await runScheduledSync();
-      console.info('[starkit]', formatCronOutcome(outcome));
+      devLog('[starkit]', formatCronOutcome(outcome));
     } catch (err) {
       console.warn('[starkit] sync failed:', err);
     }
