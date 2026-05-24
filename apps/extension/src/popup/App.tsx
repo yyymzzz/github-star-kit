@@ -1001,9 +1001,25 @@ export function App(): JSX.Element {
       )}
 
       <footer style={styles.footer}>
-        <button type="button" onClick={() => void onClearAll()} style={styles.linkButton}>
-          Reset keys &amp; clear cache
-        </button>
+        <div style={styles.footerLinks}>
+          <a
+            href="https://github.com/yyymzzz/github-star-kit#readme"
+            target="_blank"
+            rel="noreferrer"
+            style={styles.footerLink}
+            title="Open the project README on GitHub — feature tour, FAQ, privacy policy"
+          >
+            📖 README
+          </a>
+          <span style={styles.footerSep}>·</span>
+          <button
+            type="button"
+            onClick={() => void onClearAll()}
+            style={styles.linkButton}
+          >
+            Reset keys &amp; clear cache
+          </button>
+        </div>
       </footer>
     </main>
   );
@@ -1502,5 +1518,23 @@ const styles = {
     paddingTop: '8px',
     borderTop: '1px solid rgba(127, 127, 127, 0.12)',
     textAlign: 'center' as const,
+  },
+  footerLinks: {
+    display: 'flex',
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
+    gap: '6px',
+    flexWrap: 'wrap' as const,
+  },
+  footerLink: {
+    fontSize: '11px',
+    color: 'inherit',
+    opacity: 0.65,
+    textDecoration: 'none',
+    fontWeight: 500,
+  },
+  footerSep: {
+    fontSize: '11px',
+    opacity: 0.35,
   },
 } as const;
