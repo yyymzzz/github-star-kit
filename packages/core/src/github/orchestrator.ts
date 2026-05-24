@@ -154,7 +154,15 @@ export async function syncStarsWithStore(
     };
   }
 
-  const upsertResult = await starStore.upsertMany(syncResult.stars);
+  // R12 蓝军 #2-1 P0 fix: GitHub doesn't know our local-only fields
+  // (aiTags / aiSummary / userNote / lastEmbeddedAt / subscribedToReleases /
+  // deepIndexed). syncResult.stars came through transformStarred → zod parse,
+  // so the missing fields were filled with their schema defaults ([] / null /
+  // false). A bare upsertMany would clobber every locally-decorated row on the
+  // next sync. Merge the existing local fields back in before persisting so
+  // user notes, AI tags, and embed timestamps survive the round-trip.
+  const merged = await mergeLocalFields(starStore, syncResult.stars);
+  const upsertResult = await starStore.upsertMany(merged);
 
   // Cleanup ONLY in full mode — incremental short-circuit cannot prove a
   // row was un-starred (the request never reached the page it lives on).
@@ -190,7 +198,7 @@ export async function syncStarsWithStore(
   await cursorStore.set(newCursor);
 
   return {
-    stars: syncResult.stars,
+    stars: merged,
     etag: syncResult.etag,
     notModified: false,
     fetchedAt: syncResult.fetchedAt,
@@ -201,4 +209,61 @@ export async function syncStarsWithStore(
     knownCountAfter,
     syncMode,
   };
+}
+
+/**
+ * Local-only fields — never sourced from GitHub. Preserved across re-sync by
+ * copying from the existing row when present. Kept as a string-literal tuple
+ * so a future schema addition trips a typescript error here if we forget to
+ * decide whether the new field is GitHub-owned or local-owned.
+ */
+const LOCAL_ONLY_FIELDS = [
+  'aiTags',
+  'aiSummary',
+  'userNote',
+  'lastEmbeddedAt',
+  'subscribedToReleases',
+  'deepIndexed',
+] as const satisfies ReadonlyArray<keyof StarredRepo>;
+
+/**
+ * For each incoming row, look up the existing row by id. If found, overlay
+ * the LOCAL_ONLY_FIELDS from existing onto the incoming row. Otherwise pass
+ * the incoming row through (zod defaults already applied — first-sync rows
+ * start with empty aiTags, null userNote, etc., which is the correct cold
+ * state).
+ *
+ * Race note: this is read-then-write; if another writer (auto-tag, popup
+ * manual edit) lands between our read and upsert, that write may be lost
+ * to ours. Acceptable trade-off in v1 because (a) the popup sync-lock
+ * serializes the most likely concurrent path (cron vs popup sync), (b) tag
+ * runs are explicitly user-initiated and don't overlap normal sync windows,
+ * and (c) the failure mode under a true race is "this sync's local field
+ * preservation reflects state from N ms ago" — strictly better than today's
+ * "every sync clobbers everything." A fully atomic read-merge-write would
+ * need a store-level transaction API change, left for W6.
+ */
+async function mergeLocalFields(
+  starStore: StarStore,
+  incoming: ReadonlyArray<StarredRepo>
+): Promise<ReadonlyArray<StarredRepo>> {
+  if (incoming.length === 0) return incoming;
+  const merged: StarredRepo[] = new Array(incoming.length);
+  for (let i = 0; i < incoming.length; i += 1) {
+    const row = incoming[i]!;
+    const existing = await starStore.get(row.id);
+    if (!existing) {
+      merged[i] = row;
+      continue;
+    }
+    const next: StarredRepo = { ...row };
+    for (const field of LOCAL_ONLY_FIELDS) {
+      // `as never` is the established workaround for assigning into a union-
+      // valued generic key — runtime is `(next as any)[field] = existing[field]`
+      // but typed soundly.
+      (next as Record<string, unknown>)[field] = existing[field];
+    }
+    merged[i] = next;
+  }
+  return merged;
 }

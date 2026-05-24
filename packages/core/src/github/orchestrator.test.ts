@@ -480,6 +480,83 @@ describe('syncStarsWithStore — same-second boundary (data-loss regression)', (
   });
 });
 
+describe('syncStarsWithStore — local field preservation (R12 蓝军 regression)', () => {
+  // R12 蓝军 #2-1 P0: syncResult.stars come from GitHub which has no concept of
+  // aiTags / aiSummary / userNote / lastEmbeddedAt / subscribedToReleases /
+  // deepIndexed. Zod's `.default([])` / `.default(null)` / `.default(false)`
+  // would silently overwrite these LOCAL-ONLY fields on every sync, wiping
+  // user notes, generated tags, and forcing re-embedding. The orchestrator
+  // MUST merge local fields from the existing row before upserting.
+  it('preserves aiTags / userNote / aiSummary / lastEmbeddedAt / subscribedToReleases / deepIndexed on re-sync', async () => {
+    const starStore = new StarStoreMemory();
+    const cursorStore = new CursorStoreMemory();
+    const client = createGithubClient({ token: TOKEN, retries: 0 });
+    const T = '2026-05-15T00:00:00Z';
+
+    // Cold sync: import one star.
+    nextJson(fm, [sampleStar(1, T)], { headers: { etag: '"e1"' } });
+    await syncStarsWithStore(client, { starStore, cursorStore });
+
+    // Simulate downstream pipelines decorating the row with local fields:
+    // auto-tag, manual user note, embedding pass, release subscription, deep-index opt-in.
+    const existing = await starStore.get(1);
+    expect(existing).not.toBeNull();
+    await starStore.upsertMany([
+      {
+        ...existing!,
+        aiTags: ['rust', 'async-runtime'],
+        userNote: 'check examples/ before adopting',
+        aiSummary: 'A Rust async runtime focused on low-latency scheduling.',
+        lastEmbeddedAt: '2026-05-20T00:00:00Z',
+        subscribedToReleases: true,
+        deepIndexed: true,
+      },
+    ]);
+
+    // Re-sync: GitHub returns the same star (no local field knowledge).
+    // forceFullSync to be explicit and avoid cursor-mode branching.
+    nextJson(fm, [sampleStar(1, T)], { headers: { etag: '"e2"' } });
+    await syncStarsWithStore(
+      client,
+      { starStore, cursorStore },
+      { forceFullSync: true }
+    );
+
+    const after = await starStore.get(1);
+    expect(after).not.toBeNull();
+    // The six local-only fields MUST survive the resync.
+    expect(after!.aiTags).toEqual(['rust', 'async-runtime']);
+    expect(after!.userNote).toBe('check examples/ before adopting');
+    expect(after!.aiSummary).toBe(
+      'A Rust async runtime focused on low-latency scheduling.'
+    );
+    expect(after!.lastEmbeddedAt).toBe('2026-05-20T00:00:00Z');
+    expect(after!.subscribedToReleases).toBe(true);
+    expect(after!.deepIndexed).toBe(true);
+    // GitHub-sourced fields are refreshed (lastSyncedAt advances).
+    expect(after!.lastSyncedAt).not.toBe(existing!.lastSyncedAt);
+  });
+
+  it('cold sync (no existing row) writes GitHub data as-is — does not invent local fields', async () => {
+    const starStore = new StarStoreMemory();
+    const cursorStore = new CursorStoreMemory();
+    const client = createGithubClient({ token: TOKEN, retries: 0 });
+
+    nextJson(fm, [sampleStar(7, '2026-05-15T00:00:00Z')], {
+      headers: { etag: '"e1"' },
+    });
+    await syncStarsWithStore(client, { starStore, cursorStore });
+
+    const row = await starStore.get(7);
+    expect(row?.aiTags).toEqual([]);
+    expect(row?.userNote).toBeNull();
+    expect(row?.aiSummary).toBeNull();
+    expect(row?.lastEmbeddedAt).toBeNull();
+    expect(row?.subscribedToReleases).toBe(false);
+    expect(row?.deepIndexed).toBe(false);
+  });
+});
+
 describe('syncStarsWithStore — error propagation', () => {
   it('does not touch the cursor when syncStars throws', async () => {
     const starStore = new StarStoreMemory();
