@@ -56,6 +56,30 @@ export const StarredRepoSchema = z.object({
   lastEmbeddedAt: z.string().nullable().default(null),
   /** Last time we synced this row. */
   lastSyncedAt: z.string(),
+  /**
+   * AI-translated cache of the GitHub-original `description` field, keyed
+   * by locale id (e.g. `zh-CN`, `ja`). Populated by translateStars when
+   * the user hits "Translate to {locale}"; rendered as a transparent
+   * substitute for `description` whenever the UI's active locale has an
+   * entry. Original `description` is preserved untouched so a re-translate
+   * or locale switch is cheap.
+   *
+   * Schema-version forward compatibility: pre-Phase-6 rows have no
+   * `descriptionI18n` key at all; `.default({})` makes them parse cleanly
+   * into an empty cache on first read after the version bump.
+   */
+  descriptionI18n: z.record(z.string(), z.string()).default({}),
+  /** Same shape, for the AI-generated 1-line summary (W4 digest hook). */
+  aiSummaryI18n: z.record(z.string(), z.string()).default({}),
+  /**
+   * Same shape, for the auto-tag output. Stored as one joined string per
+   * locale (e.g. `"异步运行时, rust, 并发"`) because tag re-translation
+   * round-trips through `parseTagResponse` anyway and a single chat call
+   * per repo is cheaper than N small calls.
+   */
+  aiTagsI18n: z.record(z.string(), z.string()).default({}),
+  /** ISO timestamp of last successful translate pass — null = never. */
+  lastTranslatedAt: z.string().nullable().default(null),
 });
 export type StarredRepo = z.infer<typeof StarredRepoSchema>;
 

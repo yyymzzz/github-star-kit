@@ -554,6 +554,13 @@ function Row(props: {
 }): JSX.Element {
   const star = props.data.stars[props.index]!;
   const indexing = props.data.perRowState.has(star.id);
+  const { locale } = useI18n();
+  // Same Phase 6 localized-description fallback as popup's RepoLink:
+  // prefer cached translation for the active locale, fall back to original.
+  const displayDesc =
+    locale !== 'en' && star.descriptionI18n?.[locale]
+      ? star.descriptionI18n[locale]!
+      : star.description;
   return (
     <div style={{ ...props.style, padding: '0 4px' }}>
       <div style={styles.rowCard}>
@@ -572,7 +579,7 @@ function Row(props: {
             <span style={styles.stars}>★ {star.stargazersCount.toLocaleString()}</span>
           </div>
         </div>
-        {star.description && <p style={styles.rowDesc}>{star.description}</p>}
+        {displayDesc && <p style={styles.rowDesc}>{displayDesc}</p>}
         <div style={styles.rowMiddle}>
           {star.aiTags.length > 0 && (
             <div style={styles.tagRow}>

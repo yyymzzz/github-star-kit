@@ -86,6 +86,19 @@ export type {
 } from './tagging/index.js';
 
 export {
+  buildTranslateSystemPrompt,
+  buildTranslateUserPrompt,
+  parseTranslateResponse,
+  translateStars,
+  TRANSLATE_LOCALE_NAMES,
+} from './translate/index.js';
+export type {
+  TranslateStarsOptions,
+  TranslateStarsResult,
+  UpdateStarTranslationFn,
+} from './translate/index.js';
+
+export {
   computeInterestProfile,
   digestCosine,
   recencyBoost,

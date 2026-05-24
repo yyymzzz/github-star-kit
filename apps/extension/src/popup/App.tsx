@@ -33,6 +33,7 @@ import {
   summarizeDigestEntries,
   syncStarsWithStore,
   tagStars,
+  translateStars,
   type DigestResult,
   type StarredRepo,
   type SyncCursor,
@@ -123,7 +124,7 @@ interface CodeHit {
 type SearchHit = StarHit | CodeHit;
 
 export function App(): JSX.Element {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   // null = loading from IDB; string = persisted value; '' = user clearing
   const [pat, setPat] = useState<string | null>(null);
   const [patDraft, setPatDraft] = useState<string>('');
@@ -140,12 +141,24 @@ export function App(): JSX.Element {
   const [knownCount, setKnownCount] = useState<number>(0);
   const [indexedCount, setIndexedCount] = useState<number>(0);
   const [untaggedCount, setUntaggedCount] = useState<number>(0);
+  /** Stars whose description is non-empty AND lacks a translation for
+   *  the currently-active UI locale. Computed lazily — derived from
+   *  allStars + locale on demand, not stored in state, because re-keying
+   *  state every locale switch is fragile. See `untranslatedCount` useMemo. */
+  const [allStarsForTrCount, setAllStarsForTrCount] = useState<
+    ReadonlyArray<StarredRepo>
+  >([]);
   const [cursor, setCursor] = useState<SyncCursor | null>(null);
 
   const [syncState, setSyncState] = useState<SyncState>('idle');
   const [embedState, setEmbedState] = useState<EmbedState>('idle');
   const [searchState, setSearchState] = useState<SearchState>('idle');
   const [tagState, setTagState] = useState<TagState>('idle');
+  const [translateState, setTranslateState] = useState<'idle' | 'translating'>('idle');
+  const [translateProgress, setTranslateProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   const [deepIndexState, setDeepIndexState] = useState<DeepIndexState>('idle');
   const [deepIndexProgress, setDeepIndexProgress] = useState<{
     repo: string;
@@ -237,6 +250,7 @@ export function App(): JSX.Element {
         // count when row counts justify it.
         const all = await stores.starStore.list();
         setUntaggedCount(all.filter((s) => s.aiTags.length === 0).length);
+        setAllStarsForTrCount(all);
         setDeepIndexedCount(all.filter((s) => s.deepIndexed).length);
       } catch (err) {
         if (!cancelled) setError(formatError(err));
@@ -308,6 +322,7 @@ export function App(): JSX.Element {
       setKnownCount(0);
       setIndexedCount(0);
       setUntaggedCount(0);
+      setAllStarsForTrCount([]);
       setDeepIndexedCount(0);
       setCursor(null);
       setLastSyncSummary(null);
@@ -355,6 +370,7 @@ export function App(): JSX.Element {
       // Newly-synced stars start untagged, so the count grows post-sync.
       const all = await starStore.list();
       setUntaggedCount(all.filter((s) => s.aiTags.length === 0).length);
+      setAllStarsForTrCount(all);
       // R9 蓝军 fix C1: clear stale digest after sync — its ranks are now
       // computed against pre-sync data and could mislead the user.
       digestGenRef.current += 1;
@@ -432,6 +448,87 @@ export function App(): JSX.Element {
     }
   }, [aiKey, aiProvider, embedState, knownCount]);
 
+  // ─── Translate: render repo descriptions in the user's UI locale ─────
+  //
+  // Stars whose description is non-empty AND lacks a cached translation
+  // for the currently-active locale. en is treated as "no translation
+  // needed" — we assume GitHub descriptions are English-default; if the
+  // user's UI locale IS English, the original is what they want anyway.
+  // Recomputes when locale changes (drives the button label + visibility).
+  const untranslatedCount = useMemo(() => {
+    if (locale === 'en') return 0;
+    let n = 0;
+    for (const s of allStarsForTrCount) {
+      if (!s.description || s.description.trim().length === 0) continue;
+      if (s.descriptionI18n?.[locale]) continue;
+      n += 1;
+    }
+    return n;
+  }, [allStarsForTrCount, locale]);
+
+  const onTranslate = useCallback(async () => {
+    if (!aiKey || !aiProvider || translateState === 'translating') return;
+    if (locale === 'en') {
+      // Defensive guard — the button shouldn't even render in this case.
+      setError('Switch UI language first (English originals need no translation).');
+      return;
+    }
+    setTranslateState('translating');
+    setTranslateProgress({ done: 0, total: untranslatedCount });
+    setError(null);
+
+    try {
+      const { starStore } = await getStores();
+      const provider = buildProvider(aiProvider, aiKey);
+
+      await translateStars({
+        starStore,
+        chat: (system, user, signal) =>
+          provider
+            .chat({ system, user, ...(signal ? { signal } : {}) })
+            .then((r) => ({
+              text: r.text,
+              inputTokens: r.inputTokens,
+              outputTokens: r.outputTokens,
+              model: r.model,
+            })),
+        // Merge new translation into descriptionI18n bag, leaving other
+        // locales untouched. starStore.upsertMany re-validates via zod so
+        // a malformed cache entry would fail loudly here.
+        updateStar: async (id, localeCode, translatedDescription) => {
+          const existing = await starStore.get(id);
+          if (!existing) return;
+          const nextI18n = {
+            ...existing.descriptionI18n,
+            [localeCode]: translatedDescription,
+          };
+          await starStore.upsertMany([
+            {
+              ...existing,
+              descriptionI18n: nextI18n,
+              lastTranslatedAt: new Date().toISOString(),
+            },
+          ]);
+        },
+        targetLocale: locale,
+        onProgress: (done, total) => setTranslateProgress({ done, total }),
+      });
+
+      // Refresh: top-10 list + the bulk array that feeds untranslatedCount.
+      const [top, all] = await Promise.all([
+        starStore.list({ limit: 10 }),
+        starStore.list(),
+      ]);
+      setStars(top);
+      setAllStarsForTrCount(all);
+      setTranslateProgress(null);
+    } catch (err) {
+      setError(formatError(err));
+    } finally {
+      setTranslateState('idle');
+    }
+  }, [aiKey, aiProvider, locale, translateState, untranslatedCount]);
+
   // ─── Auto-tag: LLM-generated tags per repo ────────────────────────────
   const onAutoTag = useCallback(async () => {
     if (!aiKey || !aiProvider || tagState === 'tagging') return;
@@ -477,6 +574,7 @@ export function App(): JSX.Element {
       ]);
       setStars(top);
       setUntaggedCount(all.filter((s) => s.aiTags.length === 0).length);
+      setAllStarsForTrCount(all);
       setTagProgress(null);
     } catch (err) {
       setError(formatError(err));
@@ -831,7 +929,7 @@ export function App(): JSX.Element {
         <div style={styles.searchRow}>
           <input
             type="search"
-            placeholder="Search starred repos… (semantic)"
+            placeholder={t('search.placeholder')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -845,7 +943,7 @@ export function App(): JSX.Element {
             disabled={searchState === 'searching' || query.trim() === ''}
             style={styles.smallButton}
           >
-            {searchState === 'searching' ? '…' : 'Go'}
+            {searchState === 'searching' ? '…' : t('search.go')}
           </button>
         </div>
       )}
@@ -890,7 +988,15 @@ export function App(): JSX.Element {
       )}
 
       {/* Auto-tag + Weekly Digest action row */}
-      {aiKey !== '' && (untaggedCount > 0 || indexedCount > 0) && (
+      {/* Translate progress notice — shown even when the button row is
+       *  collapsed, so the in-flight pass stays visible. */}
+      {translateState === 'translating' && translateProgress && (
+        <div style={styles.notice}>
+          🌐 Translating {translateProgress.done}/{translateProgress.total}…
+        </div>
+      )}
+
+      {aiKey !== '' && (untaggedCount > 0 || indexedCount > 0 || untranslatedCount > 0) && (
         <div style={styles.searchRow}>
           {untaggedCount > 0 && tagState === 'idle' && (
             <button
@@ -899,6 +1005,16 @@ export function App(): JSX.Element {
               style={{ ...styles.secondaryButton, flex: 1 }}
             >
               Auto-tag {untaggedCount} repo{untaggedCount === 1 ? '' : 's'}
+            </button>
+          )}
+          {untranslatedCount > 0 && translateState === 'idle' && locale !== 'en' && (
+            <button
+              type="button"
+              onClick={() => void onTranslate()}
+              style={{ ...styles.secondaryButton, flex: 1 }}
+              title={`Translate ${untranslatedCount} descriptions into the current UI locale (${locale}). Uses your AI provider key — ~¥0.30 for 1000 repos.`}
+            >
+              🌐 Translate {untranslatedCount}
             </button>
           )}
           {indexedCount > 0 && !digest && (
@@ -1278,6 +1394,15 @@ function RepoLink(props: {
   readonly score?: number;
 }): JSX.Element {
   const { star, score } = props;
+  const { locale } = useI18n();
+  // Localized description: prefer the cached translation for the active
+  // UI locale, fall back to the GitHub-original `description`. Empty
+  // `descriptionI18n[locale]` (translation in progress / failed) also
+  // falls back. `title` (tooltip) keeps the original for verifiability.
+  const displayDesc =
+    locale !== 'en' && star.descriptionI18n?.[locale]
+      ? star.descriptionI18n[locale]!
+      : star.description;
   return (
     <>
       <a
@@ -1295,8 +1420,8 @@ function RepoLink(props: {
           {star.language && <span style={styles.repoLang}>{star.language}</span>}
         </span>
       </a>
-      {star.description && (
-        <div style={styles.repoDesc}>{truncate(star.description, 120)}</div>
+      {displayDesc && (
+        <div style={styles.repoDesc}>{truncate(displayDesc, 120)}</div>
       )}
       {star.aiTags.length > 0 && (
         <div style={styles.tagRow}>
