@@ -48,7 +48,7 @@ export async function getStores(): Promise<PopupStores> {
   };
 }
 
-// PAT + OpenAI API key kv keys live in ../shared/keys.ts so the service
+// PAT + AI provider config kv keys live in ../shared/keys.ts so the service
 // worker can reference them without importing popup-specific React code.
 // Re-exported here so existing popup imports keep working.
-export { KV_KEY_PAT, KV_KEY_OPENAI_KEY } from '../shared/keys.js';
+export { KV_KEY_PAT, KV_KEY_AI_KEY, KV_KEY_AI_PROVIDER } from '../shared/keys.js';

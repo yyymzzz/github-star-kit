@@ -37,22 +37,47 @@ import {
   type StarredRepo,
   type SyncCursor,
 } from '@starkit/core';
-// Direct OpenAIProvider import — popup v1 hardcodes OpenAI. createProvider
-// would pull in the whole factory tree (Anthropic / Voyage / Ollama /
-// openai-compatible) and ~30-40KB of dead code into the popup bundle.
-// When provider selection becomes a user-facing setting, switch back.
-// R10 蓝军 fix #1.
-import { OpenAIProvider } from '@starkit/ai';
+// Direct OpenAICompatibleProvider import — popup picks at runtime which
+// concrete API host (SiliconFlow / DashScope / OpenAI) to talk to via the
+// AI_PRESETS table. Avoiding the createProvider factory still saves the
+// Anthropic / Voyage / Ollama branches (~6KB) from the bundle. R10 蓝军
+// fix #1 stays in effect — we just expanded the "compatible" surface to
+// the China-region presets the GFW reality demands.
+import { OpenAICompatibleProvider } from '@starkit/ai';
 import { MemoryVectorStore, type VectorSearchResult } from '@starkit/vector';
 import { releaseSyncLock, tryAcquireSyncLock } from '../shared/lock.js';
-import { KV_KEY_OPENAI_KEY, KV_KEY_PAT, getStores } from './db.js';
+import {
+  AI_PRESETS,
+  AI_PRESET_ORDER,
+  DEFAULT_AI_PRESET,
+  type AiPresetId,
+} from '../shared/ai-presets.js';
+import { KV_KEY_AI_KEY, KV_KEY_AI_PROVIDER, KV_KEY_PAT, getStores } from './db.js';
 
 /** Identifier the popup uses when grabbing the cross-context sync lock. */
 const POPUP_OWNER_ID = 'popup-manual';
 
-/** Default embed model — text-embedding-3-small balances cost ($0.02/M tokens)
- *  with quality. Future settings UI may swap this. */
-const DEFAULT_EMBED_MODEL = 'text-embedding-3-small';
+/**
+ * Build an OpenAI-compatible provider from the selected preset + the user's
+ * API key. Centralized so every embed / chat / search / digest / deep-index
+ * codepath gets identical config (baseUrl + chatModel + embedModel) without
+ * each one having to re-read AI_PRESETS independently.
+ *
+ * Returns the configured provider; throws AIError immediately if the key is
+ * empty or the preset's baseUrl somehow fails `isSafeBaseUrl` — though every
+ * shipped preset is https, that guard exists for the v0.2 "Custom baseUrl"
+ * input we'll add later.
+ */
+function buildProvider(presetId: AiPresetId, apiKey: string): OpenAICompatibleProvider {
+  const p = AI_PRESETS[presetId];
+  return new OpenAICompatibleProvider({
+    provider: 'openai-compatible',
+    apiKey,
+    baseUrl: p.baseUrl,
+    chatModel: p.chatModel,
+    embedModel: p.embedModel,
+  });
+}
 
 type SyncState = 'idle' | 'syncing';
 type EmbedState = 'idle' | 'embedding';
@@ -65,10 +90,6 @@ type DeepIndexState = 'idle' | 'indexing';
  *  hit. 3 is the v1 default: enough to demonstrate cross-repo code search
  *  on the demo gate; cheap enough to run twice without scary numbers. */
 const DEEP_INDEX_TOP_N = 3;
-
-/** Default chat model for auto-tag. gpt-4o-mini is the cost/quality sweet
- *  spot for one-shot classification — $0.15/$0.60 per M tokens. */
-const DEFAULT_CHAT_MODEL = 'gpt-4o-mini';
 
 /** A star-level search hit — semantic match on the repo's
  *  description / topics / language composition. */
@@ -99,8 +120,14 @@ export function App(): JSX.Element {
   // null = loading from IDB; string = persisted value; '' = user clearing
   const [pat, setPat] = useState<string | null>(null);
   const [patDraft, setPatDraft] = useState<string>('');
-  const [openaiKey, setOpenaiKey] = useState<string | null>(null);
-  const [openaiKeyDraft, setOpenaiKeyDraft] = useState<string>('');
+  const [aiKey, setAiKey] = useState<string | null>(null);
+  const [aiKeyDraft, setAiKeyDraft] = useState<string>('');
+  /** Currently-selected AI provider preset. null = still loading from IDB;
+   *  defaults to DEFAULT_AI_PRESET if KV had nothing stored. */
+  const [aiProvider, setAiProvider] = useState<AiPresetId | null>(null);
+  /** Dropdown selection while user is still on the setup form. Once they
+   *  click Save the key, this gets persisted into `aiProvider` + KV. */
+  const [aiProviderDraft, setAiProviderDraft] = useState<AiPresetId>(DEFAULT_AI_PRESET);
 
   const [stars, setStars] = useState<ReadonlyArray<StarredRepo>>([]);
   const [knownCount, setKnownCount] = useState<number>(0);
@@ -163,10 +190,11 @@ export function App(): JSX.Element {
     void (async () => {
       try {
         const stores = await getStores();
-        const [storedPat, storedKey, top, cnt, cur, vecRows] =
+        const [storedPat, storedKey, storedProvider, top, cnt, cur, vecRows] =
           await Promise.all([
             stores.kvStore.get<string>(KV_KEY_PAT),
-            stores.kvStore.get<string>(KV_KEY_OPENAI_KEY),
+            stores.kvStore.get<string>(KV_KEY_AI_KEY),
+            stores.kvStore.get<string>(KV_KEY_AI_PROVIDER),
             stores.starStore.list({ limit: 10 }),
             stores.starStore.count(),
             stores.cursorStore.get(),
@@ -180,8 +208,18 @@ export function App(): JSX.Element {
         await mem.upsertMany(vecRows);
         memVecRef.current = mem;
 
+        // Validate persisted provider id against the known preset list — a
+        // user who downgrades / upgrades from a future v0.2 with extra
+        // presets should fall back cleanly rather than crash on lookup.
+        const validProvider: AiPresetId =
+          storedProvider && storedProvider in AI_PRESETS
+            ? (storedProvider as AiPresetId)
+            : DEFAULT_AI_PRESET;
+        setAiProvider(validProvider);
+        setAiProviderDraft(validProvider);
+
         setPat(storedPat ?? '');
-        setOpenaiKey(storedKey ?? '');
+        setAiKey(storedKey ?? '');
         setStars(top);
         setKnownCount(cnt);
         setCursor(cur);
@@ -217,26 +255,34 @@ export function App(): JSX.Element {
     }
   }, [patDraft]);
 
-  const onSaveOpenaiKey = useCallback(async () => {
-    const trimmed = openaiKeyDraft.trim();
+  const onSaveAiKey = useCallback(async () => {
+    const trimmed = aiKeyDraft.trim();
     if (!trimmed) return;
     try {
       const { kvStore } = await getStores();
-      await kvStore.set(KV_KEY_OPENAI_KEY, trimmed);
-      setOpenaiKey(trimmed);
-      setOpenaiKeyDraft('');
+      // Persist BOTH the key and the chosen preset atomically so the next
+      // popup mount reads a consistent pair. If the user later switches
+      // providers, they re-enter the new key + Save again.
+      await Promise.all([
+        kvStore.set(KV_KEY_AI_KEY, trimmed),
+        kvStore.set(KV_KEY_AI_PROVIDER, aiProviderDraft),
+      ]);
+      setAiKey(trimmed);
+      setAiProvider(aiProviderDraft);
+      setAiKeyDraft('');
       setError(null);
     } catch (err) {
       setError(formatError(err));
     }
-  }, [openaiKeyDraft]);
+  }, [aiKeyDraft, aiProviderDraft]);
 
   const onClearAll = useCallback(async () => {
     try {
       const { kvStore, starStore, cursorStore, vectorStore } = await getStores();
       await Promise.all([
         kvStore.delete(KV_KEY_PAT),
-        kvStore.delete(KV_KEY_OPENAI_KEY),
+        kvStore.delete(KV_KEY_AI_KEY),
+        kvStore.delete(KV_KEY_AI_PROVIDER),
         starStore.clear(),
         cursorStore.clear(),
         vectorStore.clear(),
@@ -248,7 +294,9 @@ export function App(): JSX.Element {
       ]);
       memVecRef.current = new MemoryVectorStore();
       setPat('');
-      setOpenaiKey('');
+      setAiKey('');
+      setAiProvider(DEFAULT_AI_PRESET);
+      setAiProviderDraft(DEFAULT_AI_PRESET);
       setStars([]);
       setKnownCount(0);
       setIndexedCount(0);
@@ -326,18 +374,14 @@ export function App(): JSX.Element {
 
   // ─── Embed: build search index ────────────────────────────────────────
   const onBuildIndex = useCallback(async () => {
-    if (!openaiKey || embedState === 'embedding') return;
+    if (!aiKey || !aiProvider || embedState === 'embedding') return;
     setEmbedState('embedding');
     setIndexProgress({ done: 0, total: knownCount });
     setError(null);
 
     try {
       const { starStore, vectorStore } = await getStores();
-      const provider = new OpenAIProvider({
-        provider: 'openai',
-        apiKey: openaiKey,
-        embedModel: DEFAULT_EMBED_MODEL,
-      });
+      const provider = buildProvider(aiProvider, aiKey);
       const memVec = memVecRef.current ?? new MemoryVectorStore();
       memVecRef.current = memVec;
 
@@ -379,22 +423,18 @@ export function App(): JSX.Element {
     } finally {
       setEmbedState('idle');
     }
-  }, [openaiKey, embedState, knownCount]);
+  }, [aiKey, aiProvider, embedState, knownCount]);
 
   // ─── Auto-tag: LLM-generated tags per repo ────────────────────────────
   const onAutoTag = useCallback(async () => {
-    if (!openaiKey || tagState === 'tagging') return;
+    if (!aiKey || !aiProvider || tagState === 'tagging') return;
     setTagState('tagging');
     setTagProgress({ done: 0, total: untaggedCount });
     setError(null);
 
     try {
       const { starStore } = await getStores();
-      const provider = new OpenAIProvider({
-        provider: 'openai',
-        apiKey: openaiKey,
-        chatModel: DEFAULT_CHAT_MODEL,
-      });
+      const provider = buildProvider(aiProvider, aiKey);
 
       await tagStars({
         starStore,
@@ -436,11 +476,11 @@ export function App(): JSX.Element {
     } finally {
       setTagState('idle');
     }
-  }, [openaiKey, tagState, untaggedCount]);
+  }, [aiKey, aiProvider, tagState, untaggedCount]);
 
   // ─── Deep-index: fetch source for top-N starred + embed code chunks ────
   const onDeepIndex = useCallback(async () => {
-    if (!pat || !openaiKey || deepIndexState === 'indexing') return;
+    if (!pat || !aiKey || !aiProvider || deepIndexState === 'indexing') return;
     setDeepIndexState('indexing');
     setError(null);
 
@@ -466,11 +506,7 @@ export function App(): JSX.Element {
         token: pat,
         userAgent: '@starkit/extension(deep-index)',
       });
-      const provider = new OpenAIProvider({
-        provider: 'openai',
-        apiKey: openaiKey,
-        embedModel: DEFAULT_EMBED_MODEL,
-      });
+      const provider = buildProvider(aiProvider, aiKey);
       const memVec = memVecRef.current ?? new MemoryVectorStore();
       memVecRef.current = memVec;
 
@@ -535,7 +571,7 @@ export function App(): JSX.Element {
     } finally {
       setDeepIndexState('idle');
     }
-  }, [pat, openaiKey, deepIndexState]);
+  }, [pat, aiKey, aiProvider, deepIndexState]);
 
   // ─── Weekly Digest: rank recently-pushed by relevance to user profile ──
   const onShowDigest = useCallback(async () => {
@@ -582,12 +618,8 @@ export function App(): JSX.Element {
       // as they return). Bounded concurrency = 3 so 10 entries finish in
       // ~3s on a typical OpenAI roundtrip. Errors are per-entry — the
       // ranking still ships even if every summary fails.
-      if (openaiKey && result.entries.length > 0) {
-        const provider = new OpenAIProvider({
-          provider: 'openai',
-          apiKey: openaiKey,
-          chatModel: DEFAULT_CHAT_MODEL,
-        });
+      if (aiKey && aiProvider && result.entries.length > 0) {
+        const provider = buildProvider(aiProvider, aiKey);
         try {
           const withSummaries = await summarizeDigestEntries(
             result.entries,
@@ -615,7 +647,7 @@ export function App(): JSX.Element {
     } catch (err) {
       setError(formatError(err));
     }
-  }, [indexedCount, openaiKey]);
+  }, [indexedCount, aiKey, aiProvider]);
 
   const onCloseDigest = useCallback(() => {
     // Bump generation too — a pending summarize() from a re-open during
@@ -627,7 +659,7 @@ export function App(): JSX.Element {
   // ─── Search ───────────────────────────────────────────────────────────
   const onSearch = useCallback(async () => {
     const trimmed = query.trim();
-    if (!trimmed || !openaiKey) {
+    if (!trimmed || !aiKey || !aiProvider) {
       setSearchResults([]);
       return;
     }
@@ -639,11 +671,7 @@ export function App(): JSX.Element {
     setError(null);
 
     try {
-      const provider = new OpenAIProvider({
-        provider: 'openai',
-        apiKey: openaiKey,
-        embedModel: DEFAULT_EMBED_MODEL,
-      });
+      const provider = buildProvider(aiProvider, aiKey);
       const { vectors } = await provider.embed({ inputs: [trimmed] });
       const qVec = vectors[0]!;
       // Bump limit to 8: the result set is now a MIX of star + code hits,
@@ -702,7 +730,7 @@ export function App(): JSX.Element {
     } finally {
       setSearchState('idle');
     }
-  }, [query, openaiKey, indexedCount]);
+  }, [query, aiKey, aiProvider, indexedCount]);
 
   // Clear search results when query is wiped
   useEffect(() => {
@@ -716,7 +744,7 @@ export function App(): JSX.Element {
   }, [indexedCount, knownCount]);
 
   const needsRebuild = knownCount > 0 && indexedCount < knownCount;
-  const canSearch = indexedCount > 0 && openaiKey !== null && openaiKey !== '';
+  const canSearch = indexedCount > 0 && aiKey !== null && aiKey !== '';
   const showSearchResults = query.trim() !== '' && searchResults.length > 0;
   // Re-derived on every render so countdown stays accurate without a
   // setInterval (popup is a short-lived view; re-renders happen often
@@ -729,7 +757,7 @@ export function App(): JSX.Element {
 
   // ─── Render ───────────────────────────────────────────────────────────
 
-  if (pat === null || openaiKey === null) {
+  if (pat === null || aiKey === null || aiProvider === null) {
     return (
       <main style={styles.shell}>
         <Header subtitle="loading…" />
@@ -815,21 +843,21 @@ export function App(): JSX.Element {
         </div>
       )}
 
-      {/* OpenAI key section — only when missing; shows under the search row
-          so a configured user doesn't see it. */}
-      {openaiKey === '' && (
-        <SettingsCard
-          label="OpenAI API Key (for search)"
-          help="Used only for embedding your starred repos. Stored locally; sent only to api.openai.com. ~$0.02 to index 1000 stars."
-          placeholder="sk-…"
-          value={openaiKeyDraft}
-          onChange={setOpenaiKeyDraft}
-          onSave={() => void onSaveOpenaiKey()}
+      {/* AI provider setup — only when key is missing. v1 ships 3 OpenAI-
+          compatible presets covering both China-region (SiliconFlow + Qwen)
+          and global (OpenAI). Custom baseUrl deferred to v0.2. */}
+      {aiKey === '' && (
+        <AiProviderCard
+          providerDraft={aiProviderDraft}
+          onProviderChange={setAiProviderDraft}
+          keyDraft={aiKeyDraft}
+          onKeyChange={setAiKeyDraft}
+          onSave={() => void onSaveAiKey()}
         />
       )}
 
       {/* Build index button — gated on having OpenAI key + stars to index */}
-      {openaiKey !== '' && needsRebuild && embedState === 'idle' && (
+      {aiKey !== '' && needsRebuild && embedState === 'idle' && (
         <button
           type="button"
           onClick={() => void onBuildIndex()}
@@ -850,7 +878,7 @@ export function App(): JSX.Element {
       )}
 
       {/* Auto-tag + Weekly Digest action row */}
-      {openaiKey !== '' && (untaggedCount > 0 || indexedCount > 0) && (
+      {aiKey !== '' && (untaggedCount > 0 || indexedCount > 0) && (
         <div style={styles.searchRow}>
           {untaggedCount > 0 && tagState === 'idle' && (
             <button
@@ -1011,6 +1039,78 @@ function ErrorBanner(props: { readonly message: string }): JSX.Element {
     <div role="alert" style={styles.errorBanner}>
       ⚠ {props.message}
     </div>
+  );
+}
+
+/**
+ * AI provider setup card — three-preset dropdown + a single API key input
+ * that adapts its placeholder + help text + sign-up link based on which
+ * preset is selected. Replaces the old "OpenAI API Key" SettingsCard so
+ * the user can pick SiliconFlow (DeepSeek) / DashScope (Qwen) / OpenAI
+ * before pasting a key.
+ */
+function AiProviderCard(props: {
+  readonly providerDraft: AiPresetId;
+  readonly onProviderChange: (id: AiPresetId) => void;
+  readonly keyDraft: string;
+  readonly onKeyChange: (v: string) => void;
+  readonly onSave: () => void;
+}): JSX.Element {
+  const preset = AI_PRESETS[props.providerDraft];
+  return (
+    <section style={styles.card}>
+      <label style={styles.label}>AI Provider</label>
+      <select
+        value={props.providerDraft}
+        onChange={(e) => props.onProviderChange(e.target.value as AiPresetId)}
+        style={styles.input}
+      >
+        {AI_PRESET_ORDER.map((id) => (
+          <option key={id} value={id}>
+            {AI_PRESETS[id].label}
+          </option>
+        ))}
+      </select>
+      <p style={styles.helpText}>
+        {preset.description}
+        <br />
+        <span style={{ opacity: 0.85 }}>{preset.priceHint}</span>
+        <br />
+        Get a key:{' '}
+        <a
+          href={preset.signupUrl}
+          target="_blank"
+          rel="noreferrer"
+          style={styles.snippetPermalink}
+        >
+          {preset.signupUrl}
+        </a>
+      </p>
+      <label style={styles.label}>{preset.label} API Key</label>
+      <input
+        type="password"
+        placeholder="sk-…"
+        autoComplete="off"
+        value={props.keyDraft}
+        onChange={(e) => props.onKeyChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') props.onSave();
+        }}
+        style={styles.input}
+      />
+      <p style={styles.helpText}>
+        Stored locally in this extension. Sent only to{' '}
+        <code>{new URL(preset.baseUrl).host}</code>.
+      </p>
+      <button
+        type="button"
+        onClick={props.onSave}
+        disabled={props.keyDraft.trim().length === 0}
+        style={styles.primaryButton}
+      >
+        Save
+      </button>
+    </section>
   );
 }
 

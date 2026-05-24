@@ -10,13 +10,26 @@
 export const KV_KEY_PAT = 'github.pat';
 
 /**
- * Key for the OpenAI-compatible embed API key. Stored separately from the
- * GitHub PAT so the user can configure / clear them independently; the popup
- * UI gates "Build search index" on this being present. v1 only supports
- * OpenAI's `text-embedding-3-small` as the demo-gate default — see
- * docs/ROADMAP.md decision points for the multi-provider expansion.
+ * Key for the AI provider API key (chat + embed). The actual provider is
+ * picked at runtime via `KV_KEY_AI_PROVIDER` — same key works for whichever
+ * preset (SiliconFlow / DashScope / OpenAI) the user selects.
+ *
+ * Stored separately from the GitHub PAT so the user can configure or rotate
+ * them independently; the popup UI gates "Build search index" / Auto-tag /
+ * Digest / Deep-index on this being present.
  */
-export const KV_KEY_OPENAI_KEY = 'openai.apiKey';
+export const KV_KEY_AI_KEY = 'ai.apiKey';
+
+/**
+ * Key for the selected AI provider preset. Value is one of `AiPresetId`
+ * (siliconflow / dashscope / openai). The popup reads this on every Build /
+ * Search / Auto-tag / Digest invocation to look up the matching baseUrl +
+ * chatModel + embedModel from `AI_PRESETS`.
+ *
+ * On first launch this is null; the dropdown defaults to `DEFAULT_AI_PRESET`
+ * but doesn't persist until the user clicks Save.
+ */
+export const KV_KEY_AI_PROVIDER = 'ai.provider';
 
 /** chrome.alarms name for the periodic sync schedule. */
 export const ALARM_NAME = 'starkit-sync';

@@ -28,6 +28,7 @@ export {
   createProvider,
   BaseProvider,
   OpenAIProvider,
+  OpenAICompatibleProvider,
   AnthropicProvider,
   VoyageProvider,
   OllamaProvider,
