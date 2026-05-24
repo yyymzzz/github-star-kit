@@ -481,7 +481,7 @@ export function App(): JSX.Element {
       const { starStore } = await getStores();
       const provider = buildProvider(aiProvider, aiKey);
 
-      await translateStars({
+      const translateResult = await translateStars({
         starStore,
         chat: (system, user, signal) =>
           provider
@@ -492,27 +492,64 @@ export function App(): JSX.Element {
               outputTokens: r.outputTokens,
               model: r.model,
             })),
-        // Merge new translation into descriptionI18n bag, leaving other
-        // locales untouched. starStore.upsertMany re-validates via zod so
-        // a malformed cache entry would fail loudly here.
-        updateStar: async (id, localeCode, translatedDescription) => {
+        // R17 蓝军 fix B: route description vs tags translation to the
+        // right schema bag. v1 only had description here; the `field`
+        // discriminator lets one updateStar callback serve both calls
+        // the orchestrator now makes per-star (description + tags when
+        // alsoTags=true, which is the new default).
+        updateStar: async (id, localeCode, translatedText, field) => {
           const existing = await starStore.get(id);
           if (!existing) return;
-          const nextI18n = {
-            ...existing.descriptionI18n,
-            [localeCode]: translatedDescription,
-          };
-          await starStore.upsertMany([
-            {
-              ...existing,
-              descriptionI18n: nextI18n,
-              lastTranslatedAt: new Date().toISOString(),
-            },
-          ]);
+          if (field === 'description') {
+            const nextI18n = {
+              ...existing.descriptionI18n,
+              [localeCode]: translatedText,
+            };
+            await starStore.upsertMany([
+              {
+                ...existing,
+                descriptionI18n: nextI18n,
+                lastTranslatedAt: new Date().toISOString(),
+              },
+            ]);
+          } else {
+            // field === 'tags'
+            const nextTagsI18n = {
+              ...existing.aiTagsI18n,
+              [localeCode]: translatedText,
+            };
+            await starStore.upsertMany([
+              {
+                ...existing,
+                aiTagsI18n: nextTagsI18n,
+                lastTranslatedAt: new Date().toISOString(),
+              },
+            ]);
+          }
         },
         targetLocale: locale,
+        alsoTags: true,
         onProgress: (done, total) => setTranslateProgress({ done, total }),
       });
+
+      // R17 蓝军 fix A3: surface failed count + repo names so user can
+      // see what didn't translate and click Retry. v1 just dropped
+      // `result.failed` on the floor — the "翻译总有几个翻译不了"
+      // complaint had nowhere to land.
+      if (translateResult.failed > 0) {
+        const failedNames = translateResult.failedStarIds
+          .slice(0, 3)
+          .map((id) => allStarsForTrCount.find((s) => s.id === id)?.fullName)
+          .filter((n): n is string => typeof n === 'string')
+          .join(', ');
+        const more =
+          translateResult.failedStarIds.length > 3
+            ? ` +${translateResult.failedStarIds.length - 3}…`
+            : '';
+        setError(
+          `${translateResult.failed} repos couldn't be translated (${failedNames}${more}). Click Translate again to retry just those — already-done ones will skip.`
+        );
+      }
 
       // Refresh: top-10 list + the bulk array that feeds untranslatedCount.
       const [top, all] = await Promise.all([
@@ -527,7 +564,7 @@ export function App(): JSX.Element {
     } finally {
       setTranslateState('idle');
     }
-  }, [aiKey, aiProvider, locale, translateState, untranslatedCount]);
+  }, [aiKey, aiProvider, locale, translateState, untranslatedCount, allStarsForTrCount]);
 
   // ─── Auto-tag: LLM-generated tags per repo ────────────────────────────
   const onAutoTag = useCallback(async () => {
@@ -1043,8 +1080,11 @@ export function App(): JSX.Element {
 
       {deepIndexState === 'indexing' && deepIndexProgress && (
         <div style={styles.notice}>
-          Deep-indexing {deepIndexProgress.repo} ({deepIndexProgress.done + 1}/
-          {deepIndexProgress.total})…
+          {t('deepIndex.progress', {
+            repo: deepIndexProgress.repo,
+            done: deepIndexProgress.done + 1,
+            total: deepIndexProgress.total,
+          })}
         </div>
       )}
 
@@ -1353,6 +1393,7 @@ function SettingsCard(props: {
 
 function CodeSnippet(props: { readonly hit: CodeHit }): JSX.Element {
   const { hit } = props;
+  const { t } = useI18n();
   // GitHub permalink format: /{owner}/{repo}/blob/{ref}#L{start}-L{end}
   // Using defaultBranch is acceptable for v1 — a future tightening could
   // pin the commit SHA we deep-indexed at to immortalize the link.
@@ -1361,7 +1402,7 @@ function CodeSnippet(props: { readonly hit: CodeHit }): JSX.Element {
     <>
       <div style={styles.repoLink}>
         <span style={styles.repoName}>
-          <span style={styles.codeBadge}>code</span>
+          <span style={styles.codeBadge}>{t('code.badge')}</span>
           {hit.star.fullName}
         </span>
         <span style={styles.repoMetaRight}>
@@ -1382,7 +1423,7 @@ function CodeSnippet(props: { readonly hit: CodeHit }): JSX.Element {
           rel="noreferrer"
           style={styles.snippetPermalink}
         >
-          View on GitHub →
+          {t('code.viewOnGitHub')}
         </a>
       </div>
     </>
@@ -1423,15 +1464,30 @@ function RepoLink(props: {
       {displayDesc && (
         <div style={styles.repoDesc}>{truncate(displayDesc, 120)}</div>
       )}
-      {star.aiTags.length > 0 && (
-        <div style={styles.tagRow}>
-          {star.aiTags.map((t) => (
-            <span key={t} style={styles.tagChip}>
-              {t}
-            </span>
-          ))}
-        </div>
-      )}
+      {/* Localized tag chips (R17 蓝军 fix B): when the user's UI locale
+       *  has cached translations in aiTagsI18n, parse + render those.
+       *  Fall back to the English aiTags otherwise. Empty / malformed
+       *  cache entry → fall back too. */}
+      {(() => {
+        const localizedRaw =
+          locale !== 'en' && star.aiTagsI18n?.[locale]
+            ? star.aiTagsI18n[locale]
+            : null;
+        const displayTags =
+          localizedRaw && localizedRaw.length > 0
+            ? localizedRaw.split(/[,\n]/).map((s) => s.trim()).filter((s) => s.length > 0)
+            : star.aiTags;
+        if (displayTags.length === 0) return null;
+        return (
+          <div style={styles.tagRow}>
+            {displayTags.map((tg) => (
+              <span key={tg} style={styles.tagChip}>
+                {tg}
+              </span>
+            ))}
+          </div>
+        );
+      })()}
       <div style={styles.repoMeta}>
         ★ {star.stargazersCount.toLocaleString()} · starred{' '}
         {formatRelativeTime(star.starredAt)}

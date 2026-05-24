@@ -9,6 +9,8 @@
  * idempotent re-runs.
  */
 export {
+  buildTagsTranslateSystemPrompt,
+  buildTagsTranslateUserPrompt,
   buildTranslateSystemPrompt,
   buildTranslateUserPrompt,
   parseTranslateResponse,

@@ -58,6 +58,10 @@
     "noActivityHelp": "Ningún repo marcado se ha actualizado en los últimos 7 días.",
     "backToRecent": "← Recientes"
   },
+  "code": {
+    "badge": "código",
+    "viewOnGitHub": "Ver en GitHub →"
+  },
   "deepIndex": {
     "button": "🔧 Indexar a fondo top {n}",
     "buttonMore": "🔧 Indexar {n} más",

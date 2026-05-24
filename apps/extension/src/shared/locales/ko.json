@@ -58,6 +58,10 @@
     "noActivityHelp": "스타한 저장소 중 지난 7일 동안 푸시된 것이 없습니다.",
     "backToRecent": "← 최근"
   },
+  "code": {
+    "badge": "코드",
+    "viewOnGitHub": "GitHub에서 보기 →"
+  },
   "deepIndex": {
     "button": "🔧 상위 {n}개 심층 인덱싱",
     "buttonMore": "🔧 추가로 {n}개 심층 인덱싱",

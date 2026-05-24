@@ -58,6 +58,10 @@
     "noActivityHelp": "あなたがスター済みのリポジトリで、過去 7 日間のプッシュはありません。",
     "backToRecent": "← 最近のスター"
   },
+  "code": {
+    "badge": "コード",
+    "viewOnGitHub": "GitHub で表示 →"
+  },
   "deepIndex": {
     "button": "🔧 上位 {n} 件をディープインデックス",
     "buttonMore": "🔧 さらに {n} 件をディープインデックス",

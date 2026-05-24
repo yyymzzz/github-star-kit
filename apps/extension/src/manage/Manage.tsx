@@ -581,15 +581,28 @@ function Row(props: {
         </div>
         {displayDesc && <p style={styles.rowDesc}>{displayDesc}</p>}
         <div style={styles.rowMiddle}>
-          {star.aiTags.length > 0 && (
-            <div style={styles.tagRow}>
-              {star.aiTags.slice(0, 5).map((tg) => (
-                <span key={tg} style={styles.tagChipDisplay}>
-                  {tg}
-                </span>
-              ))}
-            </div>
-          )}
+          {(() => {
+            // R17 蓝军 fix B: same aiTags localization fallback as popup —
+            // prefer cached translation, fall back to English aiTags.
+            const localizedRaw =
+              locale !== 'en' && star.aiTagsI18n?.[locale]
+                ? star.aiTagsI18n[locale]
+                : null;
+            const displayTags =
+              localizedRaw && localizedRaw.length > 0
+                ? localizedRaw.split(/[,\n]/).map((s) => s.trim()).filter((s) => s.length > 0)
+                : star.aiTags;
+            if (displayTags.length === 0) return null;
+            return (
+              <div style={styles.tagRow}>
+                {displayTags.slice(0, 5).map((tg) => (
+                  <span key={tg} style={styles.tagChipDisplay}>
+                    {tg}
+                  </span>
+                ))}
+              </div>
+            );
+          })()}
         </div>
         <div style={styles.rowFooter}>
           <span style={styles.rowMeta}>

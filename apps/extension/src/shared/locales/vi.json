@@ -58,6 +58,10 @@
     "noActivityHelp": "Không có repo nào trong stars được push trong 7 ngày qua.",
     "backToRecent": "← Gần đây"
   },
+  "code": {
+    "badge": "mã",
+    "viewOnGitHub": "Xem trên GitHub →"
+  },
   "deepIndex": {
     "button": "🔧 Index sâu top {n}",
     "buttonMore": "🔧 Index sâu thêm {n}",

@@ -58,6 +58,10 @@
     "noActivityHelp": "Keine markierten Repos wurden in den letzten 7 Tagen gepusht.",
     "backToRecent": "← Zuletzt"
   },
+  "code": {
+    "badge": "Code",
+    "viewOnGitHub": "Auf GitHub ansehen →"
+  },
   "deepIndex": {
     "button": "🔧 Top {n} tief indizieren",
     "buttonMore": "🔧 {n} weitere tief indizieren",

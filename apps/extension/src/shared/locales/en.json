@@ -58,6 +58,10 @@
     "noActivityHelp": "No starred repos have been pushed in the last 7 days.",
     "backToRecent": "← Recent"
   },
+  "code": {
+    "badge": "code",
+    "viewOnGitHub": "View on GitHub →"
+  },
   "deepIndex": {
     "button": "🔧 Deep-index top {n}",
     "buttonMore": "🔧 Deep-index +{n} more",

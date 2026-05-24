@@ -58,6 +58,10 @@
     "noActivityHelp": "Nenhum favorito teve push nos últimos 7 dias.",
     "backToRecent": "← Recentes"
   },
+  "code": {
+    "badge": "código",
+    "viewOnGitHub": "Ver no GitHub →"
+  },
   "deepIndex": {
     "button": "🔧 Indexar profundo top {n}",
     "buttonMore": "🔧 Indexar mais {n}",

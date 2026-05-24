@@ -54,11 +54,11 @@ const makeFakeChat = (
 
 function makeRecorder(): {
   readonly fn: UpdateStarTranslationFn;
-  readonly calls: Array<{ id: number; locale: string; text: string }>;
+  readonly calls: Array<{ id: number; locale: string; text: string; field: 'description' | 'tags' }>;
 } {
-  const calls: Array<{ id: number; locale: string; text: string }> = [];
-  const fn: UpdateStarTranslationFn = async (id, locale, text) => {
-    calls.push({ id, locale, text });
+  const calls: Array<{ id: number; locale: string; text: string; field: 'description' | 'tags' }> = [];
+  const fn: UpdateStarTranslationFn = async (id, locale, text, field) => {
+    calls.push({ id, locale, text, field });
   };
   return { fn, calls };
 }
@@ -283,12 +283,16 @@ describe('translateStars — failure handling', () => {
     expect(calls).toHaveLength(2);
   });
 
-  it('counts an essay-length response (>600 chars) as failed (parser returns null)', async () => {
+  it('counts an essay-length response (>1200 chars) as failed (parser returns null)', async () => {
     const starStore = new StarStoreMemory();
     await starStore.upsertMany([makeStar({ id: 1, description: 'a' })]);
     const { fn: updateStar, calls } = makeRecorder();
+    // 1500 > MAX_TRANSLATION_LENGTH (1200, bumped by R17 蓝军 fix
+    // for verbose models adding suffix notes that inflated past the
+    // old 600 cap). 800-char essays now PASS — the old test value
+    // would let the model's actual translation through.
     const essayChat: ChatBatchFn = async () => ({
-      text: 'a'.repeat(800),
+      text: 'a'.repeat(1500),
       inputTokens: 1,
       outputTokens: 1,
       model: 'verbose',

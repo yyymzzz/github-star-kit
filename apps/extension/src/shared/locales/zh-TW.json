@@ -58,6 +58,10 @@
     "noActivityHelp": "你 star 的倉庫中,過去 7 天沒有任何推送。",
     "backToRecent": "← 返回最近"
   },
+  "code": {
+    "badge": "程式碼",
+    "viewOnGitHub": "在 GitHub 上檢視 →"
+  },
   "deepIndex": {
     "button": "🔧 深度索引前 {n} 個",
     "buttonMore": "🔧 再深度索引 {n} 個",

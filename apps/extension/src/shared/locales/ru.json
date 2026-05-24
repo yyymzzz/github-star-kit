@@ -58,6 +58,10 @@
     "noActivityHelp": "В отмеченных репо не было push за последние 7 дней.",
     "backToRecent": "← Недавние"
   },
+  "code": {
+    "badge": "код",
+    "viewOnGitHub": "Открыть на GitHub →"
+  },
   "deepIndex": {
     "button": "🔧 Глубокая индексация топ {n}",
     "buttonMore": "🔧 Ещё {n} в глубокий индекс",
