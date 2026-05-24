@@ -38,6 +38,7 @@ import {
   formatRelativeTime,
   indexRepoCode,
   computeInterestProfile,
+  translateStars,
   type StarredRepo,
 } from '@starkit/core';
 import { OpenAICompatibleProvider } from '@starkit/ai';
@@ -81,7 +82,7 @@ const ROW_HEIGHT = 140;
 const MAX_TAG_CHIPS = 40;
 
 export function Manage(): JSX.Element {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [allStars, setAllStars] = useState<ReadonlyArray<StarredRepo>>([]);
   const [vecByStarId, setVecByStarId] = useState<
     ReadonlyMap<number, ReadonlyArray<number>>
@@ -103,6 +104,14 @@ export function Manage(): JSX.Element {
   const [perRowState, setPerRowState] = useState<
     ReadonlyMap<number, 'indexing'>
   >(new Map());
+
+  /** Translate state mirrors popup. R5 v0.3 — lets manage power-users
+   *  trigger translate without bouncing back to the popup. */
+  const [translateState, setTranslateState] = useState<'idle' | 'translating'>('idle');
+  const [translateProgress, setTranslateProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
 
   /** AI + PAT key shared from the popup KV. Required for Per-row
    *  Deep-index — if missing, button is disabled with a tooltip pointing
@@ -263,6 +272,115 @@ export function Manage(): JSX.Element {
     });
   }, []);
 
+  // ─── Translate: same content-translation pipeline as the popup ───────
+  // Count derived live so locale switches update without re-fetching.
+  const untranslatedCount = useMemo(() => {
+    if (locale === 'en') return 0;
+    let n = 0;
+    for (const s of allStars) {
+      if (!s.description || s.description.trim().length === 0) continue;
+      if (s.descriptionI18n?.[locale]) continue;
+      n += 1;
+    }
+    return n;
+  }, [allStars, locale]);
+
+  const onTranslate = useCallback(async () => {
+    if (!aiKey || translateState === 'translating') return;
+    if (locale === 'en') {
+      setError(
+        'Switch UI language first (English originals need no translation).'
+      );
+      return;
+    }
+    setTranslateState('translating');
+    setTranslateProgress({ done: 0, total: untranslatedCount });
+    setError(null);
+
+    try {
+      const { starStore } = await getStores();
+      const preset = AI_PRESETS[aiProvider];
+      const provider = new OpenAICompatibleProvider({
+        provider: 'openai-compatible',
+        apiKey: aiKey,
+        baseUrl: preset.baseUrl,
+        chatModel: preset.chatModel,
+      });
+
+      const translateResult = await translateStars({
+        starStore,
+        chat: (system, user, signal) =>
+          provider
+            .chat({ system, user, ...(signal ? { signal } : {}) })
+            .then((r) => ({
+              text: r.text,
+              inputTokens: r.inputTokens,
+              outputTokens: r.outputTokens,
+              model: r.model,
+            })),
+        // Same dual-field write-back as popup. `field` discriminator
+        // routes to descriptionI18n vs aiTagsI18n.
+        updateStar: async (id, localeCode, translatedText, field) => {
+          const existing = await starStore.get(id);
+          if (!existing) return;
+          if (field === 'description') {
+            const nextI18n = {
+              ...existing.descriptionI18n,
+              [localeCode]: translatedText,
+            };
+            await starStore.upsertMany([
+              {
+                ...existing,
+                descriptionI18n: nextI18n,
+                lastTranslatedAt: new Date().toISOString(),
+              },
+            ]);
+          } else {
+            const nextTagsI18n = {
+              ...existing.aiTagsI18n,
+              [localeCode]: translatedText,
+            };
+            await starStore.upsertMany([
+              {
+                ...existing,
+                aiTagsI18n: nextTagsI18n,
+                lastTranslatedAt: new Date().toISOString(),
+              },
+            ]);
+          }
+        },
+        targetLocale: locale,
+        alsoTags: true,
+        onProgress: (done, total) => setTranslateProgress({ done, total }),
+      });
+
+      // Refresh local allStars so row renders pick up the new
+      // descriptionI18n / aiTagsI18n entries without a full reload.
+      const fresh = await starStore.list();
+      setAllStars(fresh);
+      setTranslateProgress(null);
+
+      if (translateResult.failed > 0) {
+        const failedNames = translateResult.failedStarIds
+          .slice(0, 3)
+          .map((id) => fresh.find((s) => s.id === id)?.fullName)
+          .filter((n): n is string => typeof n === 'string')
+          .join(', ');
+        const more =
+          translateResult.failedStarIds.length > 3
+            ? ` +${translateResult.failedStarIds.length - 3}…`
+            : '';
+        setError(
+          `${translateResult.failed} repos couldn't be translated (${failedNames}${more}). Click Translate again to retry just those — already-done ones will skip.`
+        );
+      }
+    } catch (err) {
+      setError(formatError(err));
+    } finally {
+      setTranslateState('idle');
+    }
+  }, [aiKey, aiProvider, locale, translateState, untranslatedCount]);
+
   const onPerRowDeepIndex = useCallback(
     async (star: StarredRepo) => {
       if (!aiKey || !pat) {
@@ -358,6 +476,29 @@ export function Manage(): JSX.Element {
       {error && (
         <div role="alert" style={styles.errorBanner}>
           ⚠ {error}
+        </div>
+      )}
+
+      {/* Translate progress + button row (R5 v0.3). Renders only when
+       *  the user can act on it: non-English UI, has AI key, and there
+       *  are stars left to translate. Button hides during translation
+       *  (the progress notice replaces it). */}
+      {locale !== 'en' && (translateState === 'translating' || (aiKey !== '' && untranslatedCount > 0)) && (
+        <div style={styles.actionBar}>
+          {translateState === 'translating' && translateProgress ? (
+            <span style={styles.actionBarNotice}>
+              🌐 Translating {translateProgress.done}/{translateProgress.total}…
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void onTranslate()}
+              style={styles.actionBarButton}
+              title={`Translate ${untranslatedCount} descriptions + tags into ${locale}. Uses your AI provider key.`}
+            >
+              🌐 Translate {untranslatedCount} repo{untranslatedCount === 1 ? '' : 's'}
+            </button>
+          )}
         </div>
       )}
 
@@ -667,6 +808,30 @@ const styles = {
     background: 'rgba(239, 68, 68, 0.12)',
     color: 'rgb(153, 27, 27)',
     borderRadius: '6px',
+  },
+  actionBar: {
+    display: 'flex',
+    justifyContent: 'flex-end' as const,
+    alignItems: 'center' as const,
+    padding: '4px 0',
+  },
+  actionBarButton: {
+    padding: '6px 14px',
+    border: '1px solid rgba(127, 127, 127, 0.3)',
+    borderRadius: '6px',
+    fontSize: '12px',
+    fontWeight: 500,
+    background: 'transparent',
+    color: 'inherit',
+    cursor: 'pointer',
+  },
+  actionBarNotice: {
+    fontSize: '12px',
+    padding: '6px 12px',
+    background: 'rgba(99, 102, 241, 0.12)',
+    color: 'rgb(67, 56, 202)',
+    borderRadius: '6px',
+    fontWeight: 500,
   },
   filterBar: {
     display: 'flex',

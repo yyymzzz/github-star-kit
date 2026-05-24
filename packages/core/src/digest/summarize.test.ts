@@ -4,6 +4,7 @@ import type { ChatBatchFn } from '../tagging/orchestrator.js';
 import type { DigestEntry } from './orchestrator.js';
 import {
   buildDigestSummaryPrompt,
+  buildDigestSummarySystemPrompt,
   DIGEST_SUMMARY_SYSTEM_PROMPT,
   summarizeDigestEntries,
 } from './summarize.js';
@@ -209,5 +210,78 @@ describe('summarizeDigestEntries — robustness', () => {
         { concurrency: 0 }
       )
     ).rejects.toThrow(/concurrency must be >= 1/);
+  });
+});
+
+describe('buildDigestSummarySystemPrompt — v0.3 locale support', () => {
+  it('returns English-only prompt when no locale given (back-compat)', () => {
+    const p = buildDigestSummarySystemPrompt();
+    expect(p).not.toMatch(/简体中文|日本語|Русский/);
+    expect(p).toMatch(/senior developer/);
+    // Identical to the legacy constant export
+    expect(p).toBe(DIGEST_SUMMARY_SYSTEM_PROMPT);
+  });
+
+  it('returns English-only prompt when targetLocale="en" explicitly', () => {
+    expect(buildDigestSummarySystemPrompt('en')).toBe(DIGEST_SUMMARY_SYSTEM_PROMPT);
+  });
+
+  it('instructs Chinese output for zh-CN', () => {
+    const p = buildDigestSummarySystemPrompt('zh-CN');
+    expect(p).toContain('简体中文');
+    expect(p).toContain('zh-CN');
+    expect(p).toContain('proper nouns');
+  });
+
+  it('instructs Japanese output for ja', () => {
+    const p = buildDigestSummarySystemPrompt('ja');
+    expect(p).toContain('日本語');
+    expect(p).toContain('ja');
+  });
+
+  it('falls back to English (fail-open) on unknown locale', () => {
+    // 'zz-XX' isn't in TRANSLATE_LOCALE_NAMES — should not crash, should
+    // not add bogus locale instruction. Same as no-arg call.
+    expect(buildDigestSummarySystemPrompt('zz-XX')).toBe(
+      DIGEST_SUMMARY_SYSTEM_PROMPT
+    );
+  });
+});
+
+describe('summarizeDigestEntries — v0.3 targetLocale plumbing', () => {
+  it('passes the locale-aware system prompt through to chat', async () => {
+    const seenSystems: string[] = [];
+    const chat: ChatBatchFn = async (system, _user) => {
+      seenSystems.push(system);
+      return { text: 'hook', inputTokens: 1, outputTokens: 1, model: 'f' };
+    };
+    await summarizeDigestEntries(
+      [makeEntry({ star: makeStar({ id: 1 }) })],
+      chat,
+      { targetLocale: 'zh-CN' }
+    );
+    expect(seenSystems).toHaveLength(1);
+    expect(seenSystems[0]).toContain('简体中文');
+  });
+
+  it('reuses the SAME system prompt across all entries (cache-friendly)', async () => {
+    const seenSystems: string[] = [];
+    const chat: ChatBatchFn = async (system, _user) => {
+      seenSystems.push(system);
+      return { text: 'h', inputTokens: 1, outputTokens: 1, model: 'f' };
+    };
+    await summarizeDigestEntries(
+      [
+        makeEntry({ star: makeStar({ id: 1 }) }),
+        makeEntry({ star: makeStar({ id: 2 }) }),
+        makeEntry({ star: makeStar({ id: 3 }) }),
+      ],
+      chat,
+      { targetLocale: 'ja', concurrency: 1 }
+    );
+    expect(seenSystems).toHaveLength(3);
+    // Every system prompt should be IDENTICAL (referential or value equality)
+    // so Anthropic/OpenAI prompt caching kicks in.
+    expect(new Set(seenSystems).size).toBe(1);
   });
 });

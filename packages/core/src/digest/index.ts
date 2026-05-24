@@ -21,6 +21,7 @@ export {
 } from './orchestrator.js';
 export {
   buildDigestSummaryPrompt,
+  buildDigestSummarySystemPrompt,
   DIGEST_SUMMARY_SYSTEM_PROMPT,
   summarizeDigestEntries,
   type SummarizeOptions,

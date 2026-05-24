@@ -774,7 +774,14 @@ export function App(): JSX.Element {
                   outputTokens: r.outputTokens,
                   model: r.model,
                 })),
-            { concurrency: 3 }
+            {
+              concurrency: 3,
+              // R4 v0.3 fix: pass current UI locale so digest hooks
+              // generate directly in user's language. Chinese-UI users
+              // no longer see English "why this matters" alongside
+              // translated descriptions — full content parity.
+              targetLocale: locale,
+            }
           );
           // Second write: summaries layered on. Same generation gate —
           // a new onShowDigest / onClearAll / re-embed in the ~3s window

@@ -13,20 +13,56 @@
  */
 import type { StarredRepo } from '../schema.js';
 import type { ChatBatchFn } from '../tagging/orchestrator.js';
+import { TRANSLATE_LOCALE_NAMES } from '../translate/text.js';
 import type { DigestEntry } from './orchestrator.js';
 
 /**
- * System prompt — held constant so providers that support prompt caching
- * (Anthropic, OpenAI) can amortize it across the batch.
+ * Build the system prompt for a per-entry digest hook.
+ *
+ * R17 蓝军 follow-up (v0.3): when `targetLocale` is supplied, the prompt
+ * tells the model to write the hook directly in that language. This
+ * fixes the "中文 UI 用户看到英文 digest 摘要" inconsistency without
+ * needing a separate translate pass — the model generates the right
+ * language on first try, saving an extra chat call per entry.
+ *
+ * Held constant per-locale so providers with prompt caching (Anthropic,
+ * OpenAI) amortize the prefix across the batch.
  */
-export const DIGEST_SUMMARY_SYSTEM_PROMPT = [
-  'You are a senior developer reviewing a starred GitHub repository that',
-  'was recently updated. Write a 1-2 sentence "why this matters to you" hook',
-  'focused on what kind of work the repo enables or what its recent activity',
-  'likely signals. Stay specific to the repo\'s purpose — never generic',
-  'praise like "This is a great repo!".',
-  'No salutation, no markdown, no preamble. Just the hook.',
-].join('\n');
+export function buildDigestSummarySystemPrompt(targetLocale?: string): string {
+  const lines: string[] = [
+    'You are a senior developer reviewing a starred GitHub repository that',
+    'was recently updated.',
+  ];
+  // Locale instruction comes BEFORE the task description so the model
+  // commits to the output language before drafting the hook content.
+  if (targetLocale && targetLocale !== 'en') {
+    const nativeName = TRANSLATE_LOCALE_NAMES[targetLocale];
+    if (nativeName) {
+      lines.push(
+        `Write your response in ${nativeName} (${targetLocale}). Keep technical`,
+        'proper nouns (programming language names like "Rust" / "TypeScript",',
+        'library names like "React" / "Postgres", brand names) in their',
+        'original English form.'
+      );
+    }
+  }
+  lines.push(
+    'Write a 1-2 sentence "why this matters to you" hook focused on what',
+    'kind of work the repo enables or what its recent activity likely signals.',
+    'Stay specific to the repo\'s purpose — never generic praise like',
+    '"This is a great repo!".',
+    'No salutation, no markdown, no preamble. Just the hook.'
+  );
+  return lines.join('\n');
+}
+
+/**
+ * Back-compat: English-only system prompt as a constant. The Phase 6
+ * release exported this as the canonical prompt; callers that haven't
+ * migrated to `buildDigestSummarySystemPrompt(locale)` still get the
+ * same behavior they had before.
+ */
+export const DIGEST_SUMMARY_SYSTEM_PROMPT = buildDigestSummarySystemPrompt();
 
 /**
  * Compose the per-entry user prompt. Pulls in every signal the model could
@@ -63,6 +99,14 @@ export interface SummarizeOptions {
    *  entries finish in ~3s wall clock instead of ~10s. */
   readonly concurrency?: number;
   readonly signal?: AbortSignal;
+  /**
+   * BCP-47 locale id (e.g. 'zh-CN', 'ja'). When provided AND not 'en',
+   * the prompt instructs the model to write the hook in that language.
+   * Falls back to English when omitted, when 'en', or when the locale
+   * isn't in TRANSLATE_LOCALE_NAMES — fail-open so an unknown locale
+   * doesn't crash digest generation. R17 蓝军 follow-up (v0.3).
+   */
+  readonly targetLocale?: string;
 }
 
 /**
@@ -101,6 +145,11 @@ export async function summarizeDigestEntries(
     return i;
   };
 
+  // Build the locale-aware system prompt ONCE per run. The same string
+  // gets passed for every entry, which is what providers with prompt-
+  // caching expect — the first call eats the cost, the rest reuse.
+  const systemPrompt = buildDigestSummarySystemPrompt(opts.targetLocale);
+
   const worker = async (): Promise<void> => {
     while (true) {
       const idx = next();
@@ -108,7 +157,7 @@ export async function summarizeDigestEntries(
       const entry = entries[idx]!;
       try {
         const result = await chat(
-          DIGEST_SUMMARY_SYSTEM_PROMPT,
+          systemPrompt,
           buildDigestSummaryPrompt(entry.star, entry.score),
           opts.signal
         );

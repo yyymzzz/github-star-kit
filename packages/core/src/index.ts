@@ -104,6 +104,7 @@ export {
   recencyBoost,
   generateDigest,
   buildDigestSummaryPrompt,
+  buildDigestSummarySystemPrompt,
   DIGEST_SUMMARY_SYSTEM_PROMPT,
   summarizeDigestEntries,
 } from './digest/index.js';
