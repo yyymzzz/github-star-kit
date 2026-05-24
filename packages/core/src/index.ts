@@ -101,3 +101,28 @@ export type {
   ListVectorsFn,
   SummarizeOptions,
 } from './digest/index.js';
+
+export {
+  chunkBySemantic,
+  chunkBySlidingWindow,
+  chunkSource,
+  languageFromPath,
+  normalizeLanguage,
+  decodeBase64Content,
+  DEFAULT_DENY_SEGMENTS,
+  DEFAULT_EXTENSIONS,
+  fetchRepoSource,
+  filterTree,
+  rankAndCap,
+  indexRepoCode,
+} from './code/index.js';
+export type {
+  ChunkKind,
+  ChunkOptions,
+  CodeChunk,
+  Language,
+  FetchRepoSourceOptions,
+  SourceFile,
+  IndexRepoCodeOptions,
+  IndexRepoCodeResult,
+} from './code/index.js';
