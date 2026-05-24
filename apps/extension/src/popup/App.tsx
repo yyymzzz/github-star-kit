@@ -1002,6 +1002,23 @@ export function App(): JSX.Element {
 
       <footer style={styles.footer}>
         <div style={styles.footerLinks}>
+          {knownCount > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={() =>
+                  void chrome.tabs.create({
+                    url: chrome.runtime.getURL('src/manage/index.html'),
+                  })
+                }
+                style={styles.footerLink}
+                title="Open the full-page management view — filter by language, hide forks/archived, sort by recency or stars"
+              >
+                📚 Manage all {knownCount.toLocaleString()} stars
+              </button>
+              <span style={styles.footerSep}>·</span>
+            </>
+          )}
           <a
             href="https://github.com/yyymzzz/github-star-kit#readme"
             target="_blank"

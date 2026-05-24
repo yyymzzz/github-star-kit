@@ -15,6 +15,10 @@ export default defineConfig({
     rollupOptions: {
       input: {
         popup: 'src/popup/index.html',
+        // Full-page management view, opened via chrome.tabs.create from
+        // the popup footer. Reuses the same getStores() / IDB origin so
+        // no messaging layer is needed — just a separate React mount.
+        manage: 'src/manage/index.html',
       },
     },
   },
