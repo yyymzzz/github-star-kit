@@ -23,10 +23,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createGithubClient,
   embedStars,
+  fetchRepoSource,
   formatError,
   formatRelativeTime,
   formatSyncSummary,
   generateDigest,
+  indexRepoCode,
   summarizeDigestEntries,
   syncStarsWithStore,
   tagStars,
@@ -55,15 +57,42 @@ type SyncState = 'idle' | 'syncing';
 type EmbedState = 'idle' | 'embedding';
 type SearchState = 'idle' | 'searching';
 type TagState = 'idle' | 'tagging';
+type DeepIndexState = 'idle' | 'indexing';
+
+/** How many stars to deep-index per "Deep index top N" click. Higher = more
+ *  code coverage in search results but a longer wall-clock + GitHub quota
+ *  hit. 3 is the v1 default: enough to demonstrate cross-repo code search
+ *  on the demo gate; cheap enough to run twice without scary numbers. */
+const DEEP_INDEX_TOP_N = 3;
 
 /** Default chat model for auto-tag. gpt-4o-mini is the cost/quality sweet
  *  spot for one-shot classification — $0.15/$0.60 per M tokens. */
 const DEFAULT_CHAT_MODEL = 'gpt-4o-mini';
 
-interface SearchHit {
+/** A star-level search hit — semantic match on the repo's
+ *  description / topics / language composition. */
+interface StarHit {
+  readonly kind: 'star';
   readonly star: StarredRepo;
   readonly score: number;
 }
+
+/** A code-chunk-level search hit — semantic match on a function / class
+ *  / method body inside a deep-indexed repo. metadata fields were stamped
+ *  by indexRepoCode at embed time, so the UI doesn't need to re-fetch
+ *  source to render the snippet preview + permalink. */
+interface CodeHit {
+  readonly kind: 'code';
+  readonly star: StarredRepo;
+  readonly score: number;
+  readonly path: string;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly headerLine: string;
+  readonly snippet: string;
+}
+
+type SearchHit = StarHit | CodeHit;
 
 export function App(): JSX.Element {
   // null = loading from IDB; string = persisted value; '' = user clearing
@@ -82,6 +111,13 @@ export function App(): JSX.Element {
   const [embedState, setEmbedState] = useState<EmbedState>('idle');
   const [searchState, setSearchState] = useState<SearchState>('idle');
   const [tagState, setTagState] = useState<TagState>('idle');
+  const [deepIndexState, setDeepIndexState] = useState<DeepIndexState>('idle');
+  const [deepIndexProgress, setDeepIndexProgress] = useState<{
+    repo: string;
+    done: number;
+    total: number;
+  } | null>(null);
+  const [deepIndexedCount, setDeepIndexedCount] = useState<number>(0);
 
   const [error, setError] = useState<string | null>(null);
   const [lastSyncSummary, setLastSyncSummary] = useState<string | null>(null);
@@ -139,6 +175,7 @@ export function App(): JSX.Element {
         // count when row counts justify it.
         const all = await stores.starStore.list();
         setUntaggedCount(all.filter((s) => s.aiTags.length === 0).length);
+        setDeepIndexedCount(all.filter((s) => s.deepIndexed).length);
       } catch (err) {
         if (!cancelled) setError(formatError(err));
       }
@@ -199,6 +236,7 @@ export function App(): JSX.Element {
       setKnownCount(0);
       setIndexedCount(0);
       setUntaggedCount(0);
+      setDeepIndexedCount(0);
       setCursor(null);
       setLastSyncSummary(null);
       setSearchResults([]);
@@ -367,6 +405,105 @@ export function App(): JSX.Element {
     }
   }, [openaiKey, tagState, untaggedCount]);
 
+  // ─── Deep-index: fetch source for top-N starred + embed code chunks ────
+  const onDeepIndex = useCallback(async () => {
+    if (!pat || !openaiKey || deepIndexState === 'indexing') return;
+    setDeepIndexState('indexing');
+    setError(null);
+
+    try {
+      const { starStore, vectorStore } = await getStores();
+      // Pick top-N by stargazersCount that aren't already deep-indexed.
+      // High-star repos are the obvious "code people would search" target;
+      // skipping already-indexed ones makes re-clicks cheap.
+      const all = await starStore.list();
+      const candidates = all
+        .filter((s) => !s.deepIndexed && !s.archived && !s.isFork)
+        .sort((a, b) => b.stargazersCount - a.stargazersCount)
+        .slice(0, DEEP_INDEX_TOP_N);
+
+      if (candidates.length === 0) {
+        setError(
+          `No new repos to deep-index (already covered top ${DEEP_INDEX_TOP_N} by stars).`
+        );
+        return;
+      }
+
+      const githubClient = createGithubClient({
+        token: pat,
+        userAgent: '@starkit/extension(deep-index)',
+      });
+      const provider = new OpenAIProvider({
+        provider: 'openai',
+        apiKey: openaiKey,
+        embedModel: DEFAULT_EMBED_MODEL,
+      });
+      const memVec = memVecRef.current ?? new MemoryVectorStore();
+      memVecRef.current = memVec;
+
+      for (let i = 0; i < candidates.length; i += 1) {
+        const star = candidates[i]!;
+        setDeepIndexProgress({
+          repo: star.fullName,
+          done: i,
+          total: candidates.length,
+        });
+
+        const [owner, repo] = star.fullName.split('/');
+        if (!owner || !repo) continue;
+
+        await indexRepoCode({
+          starStore,
+          repoId: star.id,
+          fetchSource: (o, r, signal) =>
+            fetchRepoSource({
+              client: githubClient,
+              owner: o,
+              repo: r,
+              ref: star.defaultBranch,
+              ...(signal ? { signal } : {}),
+            }),
+          embed: (inputs, signal) =>
+            provider
+              .embed({ inputs, ...(signal ? { signal } : {}) })
+              .then((r) => ({
+                vectors: r.vectors,
+                model: r.model,
+                inputTokens: r.inputTokens,
+              })),
+          upsert: async (rows) => {
+            const [idbRes] = await Promise.all([
+              vectorStore.upsertMany(rows),
+              memVec.upsertMany(rows),
+            ]);
+            return idbRes;
+          },
+          getExisting: (id) => vectorStore.get(id),
+        });
+
+        // Mark this repo as deep-indexed so the next click skips it.
+        await starStore.upsertMany([{ ...star, deepIndexed: true }]);
+      }
+
+      // Refresh the counters that gate the Deep-index button visibility.
+      const [newIndexedCount, refreshed] = await Promise.all([
+        vectorStore.count(),
+        starStore.list(),
+      ]);
+      setIndexedCount(newIndexedCount);
+      setDeepIndexedCount(refreshed.filter((s) => s.deepIndexed).length);
+      setDeepIndexProgress(null);
+      // Deep-indexing changes the vector population — any open digest is
+      // computed against the pre-deep-index profile, so wipe it for the
+      // same reason embed/sync do (R10 蓝军 fix C1 pattern).
+      setDigest(null);
+    } catch (err) {
+      setError(formatError(err));
+    } finally {
+      setDeepIndexState('idle');
+    }
+  }, [pat, openaiKey, deepIndexState]);
+
   // ─── Weekly Digest: rank recently-pushed by relevance to user profile ──
   const onShowDigest = useCallback(async () => {
     if (indexedCount === 0) {
@@ -461,10 +598,14 @@ export function App(): JSX.Element {
       });
       const { vectors } = await provider.embed({ inputs: [trimmed] });
       const qVec = vectors[0]!;
-      const hits = await memVecRef.current.search(qVec, { limit: 5 });
+      // Bump limit to 8: the result set is now a MIX of star + code hits,
+      // and the demo gate explicitly asks for "top 5 code snippets" — so
+      // give search room to surface enough of each kind.
+      const hits = await memVecRef.current.search(qVec, { limit: 8 });
 
-      // Rehydrate StarredRepo for each hit. metadata.starId was stamped at
-      // embed time; if a hit's row predates the schema and lacks it we skip.
+      // Rehydrate each hit. id prefix discriminates: `star:N` → StarHit,
+      // `code:N:path:idx` → CodeHit. metadata fields were stamped by the
+      // embed / index pipelines so we don't need to re-fetch source.
       const { starStore } = await getStores();
       const rehydrated = await Promise.all(
         hits.map(async (h: VectorSearchResult): Promise<SearchHit | null> => {
@@ -475,7 +616,35 @@ export function App(): JSX.Element {
           if (starId === null) return null;
           const star = await starStore.get(starId);
           if (!star) return null;
-          return { star, score: h.score };
+
+          if (h.id.startsWith('code:')) {
+            const path = h.metadata?.['path'];
+            const startLine = h.metadata?.['startLine'];
+            const endLine = h.metadata?.['endLine'];
+            const snippet = h.metadata?.['snippet'];
+            if (
+              typeof path !== 'string' ||
+              typeof startLine !== 'number' ||
+              typeof endLine !== 'number'
+            ) {
+              return null;
+            }
+            return {
+              kind: 'code',
+              star,
+              score: h.score,
+              path,
+              startLine,
+              endLine,
+              headerLine:
+                typeof h.metadata?.['headerLine'] === 'string'
+                  ? h.metadata['headerLine']
+                  : '',
+              snippet: typeof snippet === 'string' ? snippet : '',
+            };
+          }
+
+          return { kind: 'star', star, score: h.score };
         })
       );
       setSearchResults(rehydrated.filter((r): r is SearchHit => r !== null));
@@ -636,6 +805,25 @@ export function App(): JSX.Element {
               📰 Weekly digest
             </button>
           )}
+          {knownCount > 0 && deepIndexState === 'idle' && (
+            <button
+              type="button"
+              onClick={() => void onDeepIndex()}
+              style={{ ...styles.secondaryButton, flex: 1 }}
+              title={`Fetch source from top-${DEEP_INDEX_TOP_N} unindexed starred repos and embed their code so it shows up in semantic search.`}
+            >
+              {deepIndexedCount === 0
+                ? `🔧 Deep-index top ${DEEP_INDEX_TOP_N}`
+                : `🔧 Deep-index +${DEEP_INDEX_TOP_N} more`}
+            </button>
+          )}
+        </div>
+      )}
+
+      {deepIndexState === 'indexing' && deepIndexProgress && (
+        <div style={styles.notice}>
+          Deep-indexing {deepIndexProgress.repo} ({deepIndexProgress.done + 1}/
+          {deepIndexProgress.total})…
         </div>
       )}
 
@@ -651,9 +839,16 @@ export function App(): JSX.Element {
           3. Otherwise: top-10 most-recently-starred */}
       {showSearchResults ? (
         <ol style={styles.list}>
-          {searchResults.map((hit) => (
-            <li key={hit.star.id} style={styles.listItem}>
-              <RepoLink star={hit.star} score={hit.score} />
+          {searchResults.map((hit, idx) => (
+            <li
+              key={hit.kind === 'code' ? `${hit.star.id}:${hit.path}:${hit.startLine}` : `s:${hit.star.id}:${idx}`}
+              style={styles.listItem}
+            >
+              {hit.kind === 'star' ? (
+                <RepoLink star={hit.star} score={hit.score} />
+              ) : (
+                <CodeSnippet hit={hit} />
+              )}
             </li>
           ))}
         </ol>
@@ -778,6 +973,44 @@ function SettingsCard(props: {
         Save
       </button>
     </section>
+  );
+}
+
+function CodeSnippet(props: { readonly hit: CodeHit }): JSX.Element {
+  const { hit } = props;
+  // GitHub permalink format: /{owner}/{repo}/blob/{ref}#L{start}-L{end}
+  // Using defaultBranch is acceptable for v1 — a future tightening could
+  // pin the commit SHA we deep-indexed at to immortalize the link.
+  const permalink = `${hit.star.htmlUrl}/blob/${hit.star.defaultBranch}/${hit.path}#L${hit.startLine}-L${hit.endLine}`;
+  return (
+    <>
+      <div style={styles.repoLink}>
+        <span style={styles.repoName}>
+          <span style={styles.codeBadge}>code</span>
+          {hit.star.fullName}
+        </span>
+        <span style={styles.repoMetaRight}>
+          <span style={styles.scoreBadge}>{hit.score.toFixed(2)}</span>
+        </span>
+      </div>
+      <div style={styles.repoMeta}>
+        {hit.path} · L{hit.startLine}-{hit.endLine}
+        {hit.headerLine ? ` · ${truncate(hit.headerLine, 60)}` : ''}
+      </div>
+      {hit.snippet && (
+        <pre style={styles.snippetPreview}>{truncate(hit.snippet, 200)}</pre>
+      )}
+      <div style={styles.repoMeta}>
+        <a
+          href={permalink}
+          target="_blank"
+          rel="noreferrer"
+          style={styles.snippetPermalink}
+        >
+          View on GitHub →
+        </a>
+      </div>
+    </>
   );
 }
 
@@ -1016,6 +1249,35 @@ const styles = {
     background: 'rgba(34, 197, 94, 0.15)',
     color: 'rgb(22, 101, 52)',
     borderRadius: '3px',
+  },
+  codeBadge: {
+    fontSize: '9px',
+    fontFamily: 'ui-monospace, monospace',
+    padding: '1px 4px',
+    background: 'rgba(99, 102, 241, 0.18)',
+    color: 'rgb(67, 56, 202)',
+    borderRadius: '3px',
+    marginRight: '6px',
+    textTransform: 'uppercase' as const,
+    fontWeight: 700,
+    letterSpacing: '0.5px',
+  },
+  snippetPreview: {
+    fontSize: '10.5px',
+    fontFamily: 'ui-monospace, "SF Mono", Consolas, monospace',
+    background: 'rgba(127, 127, 127, 0.07)',
+    border: '1px solid rgba(127, 127, 127, 0.15)',
+    borderRadius: '4px',
+    padding: '6px 8px',
+    margin: '4px 0',
+    overflowX: 'auto' as const,
+    whiteSpace: 'pre' as const,
+    lineHeight: 1.35,
+  },
+  snippetPermalink: {
+    fontSize: '10.5px',
+    color: '#2563eb',
+    textDecoration: 'none',
   },
   repoDesc: {
     fontSize: '12px',

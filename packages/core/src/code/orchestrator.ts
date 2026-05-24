@@ -205,6 +205,11 @@ export async function indexRepoCode(
           startLine: p.chunk.startLine,
           endLine: p.chunk.endLine,
           headerLine: p.chunk.headerLine,
+          // First ~240 chars of the chunk so the search UI can render a
+          // preview without re-fetching from GitHub. Capped to keep IDB
+          // row size reasonable (~200 chunks/repo × 240B = 48KB metadata
+          // overhead per opt-in repo, acceptable).
+          snippet: p.chunk.text.slice(0, 240),
         },
       }));
       await opts.upsert(rows);
