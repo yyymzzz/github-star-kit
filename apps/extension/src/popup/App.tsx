@@ -34,7 +34,12 @@ import {
   type StarredRepo,
   type SyncCursor,
 } from '@starkit/core';
-import { createProvider } from '@starkit/ai';
+// Direct OpenAIProvider import — popup v1 hardcodes OpenAI. createProvider
+// would pull in the whole factory tree (Anthropic / Voyage / Ollama /
+// openai-compatible) and ~30-40KB of dead code into the popup bundle.
+// When provider selection becomes a user-facing setting, switch back.
+// R10 蓝军 fix #1.
+import { OpenAIProvider } from '@starkit/ai';
 import { MemoryVectorStore, type VectorSearchResult } from '@starkit/vector';
 import { releaseSyncLock, tryAcquireSyncLock } from '../shared/lock.js';
 import { KV_KEY_OPENAI_KEY, KV_KEY_PAT, getStores } from './db.js';
@@ -181,6 +186,11 @@ export function App(): JSX.Element {
         starStore.clear(),
         cursorStore.clear(),
         vectorStore.clear(),
+        // R10 蓝军 fix #7: clear sync.lock too — chrome.storage.local lives
+        // separately from IDB, so a "reset cache" that forgets the lock
+        // could leave the user unable to sync for up to 2 min (TTL) if a
+        // cron fire happened to coincide with the reset.
+        chrome.storage.local.remove('sync.lock'),
       ]);
       memVecRef.current = new MemoryVectorStore();
       setPat('');
@@ -252,7 +262,7 @@ export function App(): JSX.Element {
 
     try {
       const { starStore, vectorStore } = await getStores();
-      const provider = createProvider({
+      const provider = new OpenAIProvider({
         provider: 'openai',
         apiKey: openaiKey,
         embedModel: DEFAULT_EMBED_MODEL,
@@ -309,7 +319,7 @@ export function App(): JSX.Element {
 
     try {
       const { starStore } = await getStores();
-      const provider = createProvider({
+      const provider = new OpenAIProvider({
         provider: 'openai',
         apiKey: openaiKey,
         chatModel: DEFAULT_CHAT_MODEL,
@@ -395,7 +405,7 @@ export function App(): JSX.Element {
       // ~3s on a typical OpenAI roundtrip. Errors are per-entry — the
       // ranking still ships even if every summary fails.
       if (openaiKey && result.entries.length > 0) {
-        const provider = createProvider({
+        const provider = new OpenAIProvider({
           provider: 'openai',
           apiKey: openaiKey,
           chatModel: DEFAULT_CHAT_MODEL,
@@ -444,7 +454,7 @@ export function App(): JSX.Element {
     setError(null);
 
     try {
-      const provider = createProvider({
+      const provider = new OpenAIProvider({
         provider: 'openai',
         apiKey: openaiKey,
         embedModel: DEFAULT_EMBED_MODEL,

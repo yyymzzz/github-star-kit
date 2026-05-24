@@ -242,7 +242,7 @@ export function chunkBySemantic(
       // chunk keeps the same kind so search-time weighting still sees it
       // as semantic, not window. Without this restore, the continuation
       // grows with currentKind=null and flush silently drops it at EOF.
-      const continuationKind = currentKind;
+      const continuationKind: ChunkKind | null = currentKind;
       flush(i);
       currentStart = i + 1;
       currentKind = continuationKind;

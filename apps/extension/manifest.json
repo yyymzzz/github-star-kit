@@ -12,21 +12,12 @@
     "service_worker": "src/background/service-worker.ts",
     "type": "module"
   },
-  "content_scripts": [
-    {
-      "matches": ["https://github.com/*"],
-      "js": ["src/content/index.ts"],
-      "run_at": "document_idle"
-    }
-  ],
   "permissions": [
     "storage",
-    "alarms",
-    "contextMenus"
+    "alarms"
   ],
   "host_permissions": [
-    "https://api.github.com/*",
-    "https://github.com/*"
+    "https://api.github.com/*"
   ],
   "optional_host_permissions": [
     "https://api.openai.com/*",
