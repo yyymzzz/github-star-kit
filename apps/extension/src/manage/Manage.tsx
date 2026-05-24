@@ -12,19 +12,46 @@
  *     cross-context messaging.
  *   - react-window FixedSizeList for O(visible-rows) DOM regardless of
  *     total row count. Scales cleanly to 5000+ stars.
- *   - MVP filters (subagent-approved scope): language dropdown +
- *     archived/fork toggles + text search. Tag + topic + pushedAt window
- *     + relevance sort deferred to v0.2.
- *   - MVP sorts: starredAt / pushedAt / stargazersCount × asc / desc.
- *     All three orderBy values already exist in StarStoreListOptions; this
- *     page is pure UI plumbing.
+ *
+ * v0.2 additions over the initial MVP:
+ *   - i18n via the same I18nProvider the popup uses; all user-visible
+ *     strings now flow through t() keys.
+ *   - AI tag chip multi-select filter (AND semantics — all selected
+ *     tags must be present on the star).
+ *   - "Most relevant" sort that re-uses W4's interest-profile centroid:
+ *     score each visible star by `cosine(centroid, star's vector)`, push
+ *     unembedded stars to the bottom. Stars without an embedded vector
+ *     score 0; user gets the same "covered vs unranked" UX the digest
+ *     view introduced.
+ *   - Per-row 🔧 Deep-index button: when the star isn't deep-indexed
+ *     yet (and AI key + PAT are configured), one-click triggers
+ *     indexRepoCode for that one repo. Inline progress on the row, no
+ *     batch concurrency to worry about.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FixedSizeList } from 'react-window';
-import { formatError, formatRelativeTime, type StarredRepo } from '@starkit/core';
-import { getStores } from '../popup/db.js';
+import {
+  createGithubClient,
+  digestCosine,
+  fetchRepoSource,
+  formatError,
+  formatRelativeTime,
+  indexRepoCode,
+  computeInterestProfile,
+  type StarredRepo,
+} from '@starkit/core';
+import { OpenAICompatibleProvider } from '@starkit/ai';
+import { IndexedDBVectorStore } from '@starkit/vector';
+import {
+  getStores,
+  KV_KEY_AI_KEY,
+  KV_KEY_AI_PROVIDER,
+  KV_KEY_PAT,
+} from '../popup/db.js';
+import { AI_PRESETS, DEFAULT_AI_PRESET, type AiPresetId } from '../shared/ai-presets.js';
+import { useI18n } from '../shared/i18n.js';
 
-type SortBy = 'starredAt' | 'pushedAt' | 'stargazersCount';
+type SortBy = 'starredAt' | 'pushedAt' | 'stargazersCount' | 'relevance';
 type SortOrder = 'asc' | 'desc';
 
 interface Filters {
@@ -32,6 +59,7 @@ interface Filters {
   readonly hideArchived: boolean;
   readonly hideForks: boolean;
   readonly searchText: string;
+  readonly tags: ReadonlySet<string>; // AND semantics across selected
 }
 
 const DEFAULT_FILTERS: Filters = {
@@ -39,13 +67,28 @@ const DEFAULT_FILTERS: Filters = {
   hideArchived: true,
   hideForks: true,
   searchText: '',
+  tags: new Set(),
 };
 
-/** Row height — tall enough for repo name + 2-line description + meta + tag chips. */
-const ROW_HEIGHT = 124;
+/** Row height — tall enough for repo name + 2-line description + meta +
+ *  tag chips + action button row. Bumped slightly from MVP to fit the
+ *  per-row Deep-index button without truncation. */
+const ROW_HEIGHT = 140;
+
+/** Max tag chips to surface in the filter bar. Limits visual sprawl on
+ *  power-user accounts whose auto-tag run produced 100+ distinct tags;
+ *  user can still filter by name to find sparse tags. */
+const MAX_TAG_CHIPS = 40;
 
 export function Manage(): JSX.Element {
+  const { t } = useI18n();
   const [allStars, setAllStars] = useState<ReadonlyArray<StarredRepo>>([]);
+  const [vecByStarId, setVecByStarId] = useState<
+    ReadonlyMap<number, ReadonlyArray<number>>
+  >(new Map());
+  const [profileCentroid, setProfileCentroid] = useState<
+    ReadonlyArray<number> | null
+  >(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,8 +96,23 @@ export function Manage(): JSX.Element {
   const [sortBy, setSortBy] = useState<SortBy>('starredAt');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
+  /** Per-row in-flight Deep-index state. Map keyed by starId so multiple
+   *  rows can show progress independently if user clicks several before
+   *  the first finishes (acceptable concurrency for v1; the orchestrator
+   *  inside each call is self-contained). */
+  const [perRowState, setPerRowState] = useState<
+    ReadonlyMap<number, 'indexing'>
+  >(new Map());
+
+  /** AI + PAT key shared from the popup KV. Required for Per-row
+   *  Deep-index — if missing, button is disabled with a tooltip pointing
+   *  the user back at the popup. */
+  const [aiKey, setAiKey] = useState<string>('');
+  const [aiProvider, setAiProvider] = useState<AiPresetId>(DEFAULT_AI_PRESET);
+  const [pat, setPat] = useState<string>('');
+
   const [listHeight, setListHeight] = useState<number>(
-    typeof window !== 'undefined' ? window.innerHeight - 220 : 600
+    typeof window !== 'undefined' ? window.innerHeight - 280 : 600
   );
 
   // ─── Initial load ─────────────────────────────────────────────────────
@@ -62,10 +120,40 @@ export function Manage(): JSX.Element {
     let cancelled = false;
     void (async () => {
       try {
-        const { starStore } = await getStores();
-        const stars = await starStore.list();
+        const { starStore, vectorStore, kvStore } = await getStores();
+        const [stars, vecRows, storedPat, storedKey, storedProvider] =
+          await Promise.all([
+            starStore.list(),
+            vectorStore.list(),
+            kvStore.get<string>(KV_KEY_PAT),
+            kvStore.get<string>(KV_KEY_AI_KEY),
+            kvStore.get<string>(KV_KEY_AI_PROVIDER),
+          ]);
         if (cancelled) return;
+
+        // Index vectors by starId so per-star cosine is O(1).
+        const byId = new Map<number, ReadonlyArray<number>>();
+        const allVectors: ReadonlyArray<number>[] = [];
+        for (const row of vecRows) {
+          const sid = row.metadata?.['starId'];
+          if (typeof sid === 'number') {
+            byId.set(sid, row.vector);
+            allVectors.push(row.vector);
+          }
+        }
+        setVecByStarId(byId);
+        // Centroid feeds the relevance sort. Computed once at mount —
+        // doesn't shift between filter changes.
+        setProfileCentroid(
+          allVectors.length > 0 ? computeInterestProfile(allVectors) : null
+        );
+
         setAllStars(stars);
+        setPat(storedPat ?? '');
+        setAiKey(storedKey ?? '');
+        if (storedProvider && storedProvider in AI_PRESETS) {
+          setAiProvider(storedProvider as AiPresetId);
+        }
       } catch (err) {
         if (!cancelled) setError(formatError(err));
       } finally {
@@ -79,20 +167,33 @@ export function Manage(): JSX.Element {
 
   // ─── List-height recompute on window resize ───────────────────────────
   useEffect(() => {
-    const onResize = () => setListHeight(window.innerHeight - 220);
+    const onResize = () => setListHeight(window.innerHeight - 280);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  // ─── Language facets — computed ONCE per data load, not per filter ────
+  // ─── Language facets — computed ONCE per data load ────────────────────
   const languageFacets = useMemo(() => {
     const counts = new Map<string, number>();
     for (const s of allStars) {
       const lang = s.language ?? '(none)';
       counts.set(lang, (counts.get(lang) ?? 0) + 1);
     }
-    // Sort by count desc so the dropdown shows most-common first.
     return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  }, [allStars]);
+
+  // ─── AI tag facets — similarly cached. Cap surface area at MAX_TAG_CHIPS
+  // so 100+ unique tags don't sprawl the filter bar. ─────────────────────
+  const tagFacets = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of allStars) {
+      for (const tag of s.aiTags) {
+        counts.set(tag, (counts.get(tag) ?? 0) + 1);
+      }
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, MAX_TAG_CHIPS);
   }, [allStars]);
 
   // ─── Filter + sort pipeline ───────────────────────────────────────────
@@ -109,21 +210,33 @@ export function Manage(): JSX.Element {
         const hay = `${s.fullName} ${s.description ?? ''}`.toLowerCase();
         if (!hay.includes(lowerSearch)) return false;
       }
+      if (filters.tags.size > 0) {
+        // AND semantics — every selected tag must be on the star
+        for (const required of filters.tags) {
+          if (!s.aiTags.includes(required)) return false;
+        }
+      }
       return true;
     });
 
-    // Sort. starredAt / pushedAt are ISO-8601 strings — lex sort is the
-    // same as chronological sort because both end with Z. stargazersCount
-    // is numeric. pushedAt can be null; sort nulls to the end regardless
-    // of order direction so they don't pollute the top.
     const factor = sortOrder === 'desc' ? -1 : 1;
     filtered.sort((a, b) => {
       if (sortBy === 'stargazersCount') {
         return factor * (a.stargazersCount - b.stargazersCount);
       }
+      if (sortBy === 'relevance') {
+        // Cosine vs centroid. Stars without vectors get -Infinity so they
+        // always sink to the bottom regardless of order — they can't be
+        // meaningfully scored, so don't pretend they can.
+        const av = vecByStarId.get(a.id);
+        const bv = vecByStarId.get(b.id);
+        if (!profileCentroid || !profileCentroid.length) return 0;
+        const as = av ? digestCosine(profileCentroid, av) : -Infinity;
+        const bs = bv ? digestCosine(profileCentroid, bv) : -Infinity;
+        return factor * (as - bs);
+      }
       const av = a[sortBy];
       const bv = b[sortBy];
-      // Null handling — push nulls to bottom in either order direction.
       if (av === null && bv === null) return 0;
       if (av === null) return 1;
       if (bv === null) return -1;
@@ -131,18 +244,100 @@ export function Manage(): JSX.Element {
       return factor * (av < bv ? -1 : 1);
     });
     return filtered;
-  }, [allStars, filters, sortBy, sortOrder]);
+  }, [allStars, filters, sortBy, sortOrder, vecByStarId, profileCentroid]);
 
   // ─── Handlers ─────────────────────────────────────────────────────────
-  const onFilterChange = useCallback(<K extends keyof Filters>(key: K, value: Filters[K]) => {
-    setFilters((f) => ({ ...f, [key]: value }));
+  const onFilterChange = useCallback(
+    <K extends keyof Filters>(key: K, value: Filters[K]) => {
+      setFilters((f) => ({ ...f, [key]: value }));
+    },
+    []
+  );
+
+  const toggleTag = useCallback((tag: string) => {
+    setFilters((f) => {
+      const next = new Set(f.tags);
+      if (next.has(tag)) next.delete(tag);
+      else next.add(tag);
+      return { ...f, tags: next };
+    });
   }, []);
+
+  const onPerRowDeepIndex = useCallback(
+    async (star: StarredRepo) => {
+      if (!aiKey || !pat) {
+        setError(
+          'Configure GitHub PAT and AI Provider key in the popup before deep-indexing.'
+        );
+        return;
+      }
+      if (perRowState.has(star.id)) return; // Already in flight
+      setError(null);
+      setPerRowState((m) => new Map(m).set(star.id, 'indexing'));
+
+      try {
+        const { starStore, vectorStore } = await getStores();
+        const preset = AI_PRESETS[aiProvider];
+        const provider = new OpenAICompatibleProvider({
+          provider: 'openai-compatible',
+          apiKey: aiKey,
+          baseUrl: preset.baseUrl,
+          embedModel: preset.embedModel,
+        });
+        const githubClient = createGithubClient({
+          token: pat,
+          userAgent: '@starkit/extension(manage-per-row)',
+        });
+
+        const [owner, repo] = star.fullName.split('/');
+        if (!owner || !repo) throw new Error(`Malformed fullName: ${star.fullName}`);
+
+        await indexRepoCode({
+          starStore,
+          repoId: star.id,
+          fetchSource: (o, r, signal) =>
+            fetchRepoSource({
+              client: githubClient,
+              owner: o,
+              repo: r,
+              ref: star.defaultBranch,
+              ...(signal ? { signal } : {}),
+            }),
+          embed: (inputs, signal) =>
+            provider
+              .embed({ inputs, ...(signal ? { signal } : {}) })
+              .then((r) => ({
+                vectors: r.vectors,
+                model: r.model,
+                inputTokens: r.inputTokens,
+              })),
+          upsert: (rows) => vectorStore.upsertMany(rows),
+          getExisting: (id) => vectorStore.get(id),
+        });
+
+        // Flip the star's deepIndexed flag locally so the row label updates.
+        await starStore.upsertMany([{ ...star, deepIndexed: true }]);
+        setAllStars((prev) =>
+          prev.map((s) => (s.id === star.id ? { ...s, deepIndexed: true } : s))
+        );
+      } catch (err) {
+        setError(formatError(err));
+      } finally {
+        setPerRowState((m) => {
+          const next = new Map(m);
+          next.delete(star.id);
+          return next;
+        });
+      }
+    },
+    [aiKey, aiProvider, pat, perRowState]
+  );
 
   // ─── Render ───────────────────────────────────────────────────────────
   if (loading) {
     return (
       <main style={styles.shell}>
-        <Header subtitle="Loading your starred repos…" />
+        <Header subtitle={t('manage.loadingSubtitle')} />
       </main>
     );
   }
@@ -152,8 +347,11 @@ export function Manage(): JSX.Element {
       <Header
         subtitle={
           allStars.length === 0
-            ? 'No stars cached yet — open the popup and click Sync first.'
-            : `Showing ${visible.length.toLocaleString()} of ${allStars.length.toLocaleString()} stars`
+            ? t('manage.noStarsSubtitle')
+            : t('manage.showingOfTotal', {
+                shown: visible.length.toLocaleString(),
+                total: allStars.length.toLocaleString(),
+              })
         }
       />
 
@@ -168,20 +366,20 @@ export function Manage(): JSX.Element {
           <FilterBar
             filters={filters}
             languageFacets={languageFacets}
+            tagFacets={tagFacets}
             sortBy={sortBy}
             sortOrder={sortOrder}
+            hasProfile={profileCentroid !== null}
             onFilterChange={onFilterChange}
+            onToggleTag={toggleTag}
             onSortByChange={setSortBy}
             onSortOrderChange={setSortOrder}
           />
 
           {visible.length === 0 ? (
             <section style={styles.emptyCard}>
-              <strong>No stars match these filters.</strong>
-              <p style={styles.helpText}>
-                Try clearing the search box, switching language to "All", or
-                toggling "Hide archived" / "Hide forks" off.
-              </p>
+              <strong>{t('manage.noMatch')}</strong>
+              <p style={styles.helpText}>{t('manage.noMatchHelp')}</p>
             </section>
           ) : (
             <FixedSizeList
@@ -190,7 +388,12 @@ export function Manage(): JSX.Element {
               itemCount={visible.length}
               itemSize={ROW_HEIGHT}
               overscanCount={6}
-              itemData={visible}
+              itemData={{
+                stars: visible,
+                perRowState,
+                onDeepIndex: onPerRowDeepIndex,
+                canDeepIndex: aiKey !== '' && pat !== '',
+              }}
             >
               {Row}
             </FixedSizeList>
@@ -204,9 +407,10 @@ export function Manage(): JSX.Element {
 // ─── Subcomponents ────────────────────────────────────────────────────
 
 function Header(props: { readonly subtitle: string }): JSX.Element {
+  const { t } = useI18n();
   return (
     <header style={styles.header}>
-      <h1 style={styles.title}>🌟 GitHub Star Kit · Manage</h1>
+      <h1 style={styles.title}>{t('manage.title')}</h1>
       <p style={styles.subtitle}>{props.subtitle}</p>
     </header>
   );
@@ -215,30 +419,40 @@ function Header(props: { readonly subtitle: string }): JSX.Element {
 function FilterBar(props: {
   readonly filters: Filters;
   readonly languageFacets: ReadonlyArray<readonly [string, number]>;
+  readonly tagFacets: ReadonlyArray<readonly [string, number]>;
   readonly sortBy: SortBy;
   readonly sortOrder: SortOrder;
-  readonly onFilterChange: <K extends keyof Filters>(key: K, value: Filters[K]) => void;
+  readonly hasProfile: boolean;
+  readonly onFilterChange: <K extends keyof Filters>(
+    key: K,
+    value: Filters[K]
+  ) => void;
+  readonly onToggleTag: (tag: string) => void;
   readonly onSortByChange: (v: SortBy) => void;
   readonly onSortOrderChange: (v: SortOrder) => void;
 }): JSX.Element {
+  const { t } = useI18n();
   return (
     <section style={styles.filterBar}>
       <input
         type="search"
-        placeholder="Filter by name or description…"
+        placeholder={t('manage.searchPlaceholder')}
         value={props.filters.searchText}
         onChange={(e) => props.onFilterChange('searchText', e.target.value)}
         style={styles.searchInput}
       />
       <div style={styles.filterRow}>
         <label style={styles.filterLabel}>
-          Language:
+          {t('manage.languageLabel')}:
           <select
             value={props.filters.language}
             onChange={(e) => props.onFilterChange('language', e.target.value)}
             style={styles.filterControl}
           >
-            <option value="">All ({props.languageFacets.reduce((a, [, c]) => a + c, 0)})</option>
+            <option value="">
+              {t('manage.languageAll')} (
+              {props.languageFacets.reduce((a, [, c]) => a + c, 0)})
+            </option>
             {props.languageFacets.map(([lang, count]) => (
               <option key={lang} value={lang}>
                 {lang} ({count})
@@ -248,15 +462,18 @@ function FilterBar(props: {
         </label>
 
         <label style={styles.filterLabel}>
-          Sort by:
+          {t('manage.sortBy')}:
           <select
             value={props.sortBy}
             onChange={(e) => props.onSortByChange(e.target.value as SortBy)}
             style={styles.filterControl}
           >
-            <option value="starredAt">Recently starred</option>
-            <option value="pushedAt">Recently pushed</option>
-            <option value="stargazersCount">Most stars</option>
+            <option value="starredAt">{t('manage.sortStarred')}</option>
+            <option value="pushedAt">{t('manage.sortPushed')}</option>
+            <option value="stargazersCount">{t('manage.sortStars')}</option>
+            <option value="relevance" disabled={!props.hasProfile}>
+              ⭐ Most relevant{props.hasProfile ? '' : ' (build index first)'}
+            </option>
           </select>
         </label>
 
@@ -277,7 +494,7 @@ function FilterBar(props: {
             checked={props.filters.hideArchived}
             onChange={(e) => props.onFilterChange('hideArchived', e.target.checked)}
           />
-          Hide archived
+          {t('manage.hideArchived')}
         </label>
 
         <label style={styles.toggleLabel}>
@@ -286,21 +503,57 @@ function FilterBar(props: {
             checked={props.filters.hideForks}
             onChange={(e) => props.onFilterChange('hideForks', e.target.checked)}
           />
-          Hide forks
+          {t('manage.hideForks')}
         </label>
       </div>
+
+      {props.tagFacets.length > 0 && (
+        <div style={styles.tagFilterRow}>
+          <span style={styles.tagFilterLabel}>Tags:</span>
+          {props.tagFacets.map(([tag, count]) => {
+            const active = props.filters.tags.has(tag);
+            return (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => props.onToggleTag(tag)}
+                style={active ? styles.tagChipActive : styles.tagChipInactive}
+                title={`${count} stars have this tag`}
+              >
+                {tag} {active ? '✓' : `· ${count}`}
+              </button>
+            );
+          })}
+          {props.filters.tags.size > 0 && (
+            <button
+              type="button"
+              onClick={() => props.onFilterChange('tags', new Set())}
+              style={styles.tagClearButton}
+            >
+              clear ({props.filters.tags.size})
+            </button>
+          )}
+        </div>
+      )}
     </section>
   );
 }
 
-/** Single row inside react-window's FixedSizeList. Receives star data via
- *  itemData prop on the parent List — index is the position into that array. */
+interface RowData {
+  readonly stars: ReadonlyArray<StarredRepo>;
+  readonly perRowState: ReadonlyMap<number, 'indexing'>;
+  readonly onDeepIndex: (star: StarredRepo) => void;
+  readonly canDeepIndex: boolean;
+}
+
+/** Single row inside react-window's FixedSizeList. */
 function Row(props: {
   readonly index: number;
   readonly style: React.CSSProperties;
-  readonly data: ReadonlyArray<StarredRepo>;
+  readonly data: RowData;
 }): JSX.Element {
-  const star = props.data[props.index]!;
+  const star = props.data.stars[props.index]!;
+  const indexing = props.data.perRowState.has(star.id);
   return (
     <div style={{ ...props.style, padding: '0 4px' }}>
       <div style={styles.rowCard}>
@@ -320,23 +573,43 @@ function Row(props: {
           </div>
         </div>
         {star.description && <p style={styles.rowDesc}>{star.description}</p>}
-        <div style={styles.rowFooter}>
+        <div style={styles.rowMiddle}>
           {star.aiTags.length > 0 && (
             <div style={styles.tagRow}>
-              {star.aiTags.slice(0, 5).map((t) => (
-                <span key={t} style={styles.tagChip}>
-                  {t}
+              {star.aiTags.slice(0, 5).map((tg) => (
+                <span key={tg} style={styles.tagChipDisplay}>
+                  {tg}
                 </span>
               ))}
             </div>
           )}
+        </div>
+        <div style={styles.rowFooter}>
           <span style={styles.rowMeta}>
             starred {formatRelativeTime(star.starredAt)}
             {star.pushedAt && ` · pushed ${formatRelativeTime(star.pushedAt)}`}
             {star.archived && ' · archived'}
             {star.isFork && ' · fork'}
-            {star.deepIndexed && ' · 🔧 deep-indexed'}
           </span>
+          {star.deepIndexed ? (
+            <span style={styles.deepIndexedBadge}>🔧 deep-indexed</span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => props.data.onDeepIndex(star)}
+              disabled={!props.data.canDeepIndex || indexing}
+              style={styles.deepIndexButton}
+              title={
+                !props.data.canDeepIndex
+                  ? 'Configure PAT + AI key in the popup first.'
+                  : indexing
+                    ? 'In progress…'
+                    : 'Fetch source + embed code chunks so this repo shows up in code search'
+              }
+            >
+              {indexing ? '⏳ Indexing…' : '🔧 Deep-index'}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -413,7 +686,7 @@ const styles = {
     fontSize: '12px',
     background: 'transparent',
     color: 'inherit',
-    minWidth: '160px',
+    minWidth: '180px',
   },
   sortDirButton: {
     padding: '4px 10px',
@@ -431,6 +704,50 @@ const styles = {
     gap: '6px',
     cursor: 'pointer',
     userSelect: 'none' as const,
+  },
+  tagFilterRow: {
+    display: 'flex',
+    flexWrap: 'wrap' as const,
+    gap: '5px',
+    alignItems: 'center' as const,
+    paddingTop: '4px',
+    borderTop: '1px dashed rgba(127, 127, 127, 0.18)',
+  },
+  tagFilterLabel: {
+    fontSize: '11px',
+    opacity: 0.6,
+    fontWeight: 600,
+    marginRight: '4px',
+  },
+  tagChipInactive: {
+    fontSize: '11px',
+    padding: '3px 9px',
+    background: 'rgba(127, 127, 127, 0.08)',
+    color: 'inherit',
+    border: '1px solid rgba(127, 127, 127, 0.18)',
+    borderRadius: '11px',
+    cursor: 'pointer',
+    fontWeight: 500,
+  },
+  tagChipActive: {
+    fontSize: '11px',
+    padding: '3px 9px',
+    background: 'rgba(99, 102, 241, 0.18)',
+    color: 'rgb(67, 56, 202)',
+    border: '1px solid rgba(99, 102, 241, 0.4)',
+    borderRadius: '11px',
+    cursor: 'pointer',
+    fontWeight: 600,
+  },
+  tagClearButton: {
+    fontSize: '11px',
+    padding: '3px 9px',
+    background: 'transparent',
+    color: 'rgb(239, 68, 68)',
+    border: '1px solid rgba(239, 68, 68, 0.3)',
+    borderRadius: '11px',
+    cursor: 'pointer',
+    fontWeight: 500,
   },
   emptyCard: {
     padding: '24px',
@@ -487,6 +804,9 @@ const styles = {
     WebkitBoxOrient: 'vertical' as const,
     WebkitLineClamp: 2,
   },
+  rowMiddle: {
+    minHeight: '20px',
+  },
   rowFooter: {
     display: 'flex',
     justifyContent: 'space-between' as const,
@@ -500,7 +820,7 @@ const styles = {
     flexWrap: 'wrap' as const,
     overflow: 'hidden' as const,
   },
-  tagChip: {
+  tagChipDisplay: {
     fontSize: '10px',
     padding: '1px 6px',
     background: 'rgba(99, 102, 241, 0.12)',
@@ -511,6 +831,29 @@ const styles = {
   rowMeta: {
     fontSize: '10px',
     opacity: 0.55,
+    flexShrink: 1,
+    overflow: 'hidden' as const,
+    textOverflow: 'ellipsis' as const,
+    whiteSpace: 'nowrap' as const,
+  },
+  deepIndexedBadge: {
+    fontSize: '10px',
+    padding: '2px 8px',
+    background: 'rgba(34, 197, 94, 0.12)',
+    color: 'rgb(22, 101, 52)',
+    borderRadius: '4px',
+    fontWeight: 500,
+    flexShrink: 0,
+  },
+  deepIndexButton: {
+    fontSize: '10.5px',
+    padding: '3px 9px',
+    border: '1px solid rgba(127, 127, 127, 0.3)',
+    borderRadius: '4px',
+    background: 'transparent',
+    color: 'inherit',
+    cursor: 'pointer',
+    fontWeight: 500,
     flexShrink: 0,
   },
 } as const;
