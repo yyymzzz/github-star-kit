@@ -52,6 +52,12 @@ import {
   DEFAULT_AI_PRESET,
   type AiPresetId,
 } from '../shared/ai-presets.js';
+import {
+  LOCALE_LABELS,
+  LOCALE_ORDER,
+  useI18n,
+  type LocaleId,
+} from '../shared/i18n.js';
 import { KV_KEY_AI_KEY, KV_KEY_AI_PROVIDER, KV_KEY_PAT, getStores } from './db.js';
 
 /** Identifier the popup uses when grabbing the cross-context sync lock. */
@@ -117,6 +123,7 @@ interface CodeHit {
 type SearchHit = StarHit | CodeHit;
 
 export function App(): JSX.Element {
+  const { t } = useI18n();
   // null = loading from IDB; string = persisted value; '' = user clearing
   const [pat, setPat] = useState<string | null>(null);
   const [patDraft, setPatDraft] = useState<string>('');
@@ -760,7 +767,7 @@ export function App(): JSX.Element {
   if (pat === null || aiKey === null || aiProvider === null) {
     return (
       <main style={styles.shell}>
-        <Header subtitle="loading…" />
+        <Header subtitle={t('common.loading')} />
       </main>
     );
   }
@@ -768,11 +775,11 @@ export function App(): JSX.Element {
   if (pat === '') {
     return (
       <main style={styles.shell}>
-        <Header subtitle="paste a GitHub PAT to begin" />
+        <Header subtitle={t('settings.pat.promptSubtitle')} />
         <SettingsCard
-          label="GitHub Personal Access Token"
-          help="Needs public_repo scope (or repo for private). Stored locally; sent only to api.github.com."
-          placeholder="ghp_…"
+          label={t('settings.pat.label')}
+          help={t('settings.pat.help')}
+          placeholder={t('settings.pat.placeholder')}
           value={patDraft}
           onChange={setPatDraft}
           onSave={() => void onSavePat()}
@@ -787,10 +794,10 @@ export function App(): JSX.Element {
       <Header
         subtitle={
           cursor
-            ? `${knownCount} stars · ${indexedCount} indexed · last synced ${formatRelativeTime(
+            ? `${t('stars.summary', { n: knownCount, indexed: indexedCount })} · ${t('header.lastSynced')} ${formatRelativeTime(
                 cursor.updatedAt
               )}`
-            : `${knownCount} stars · ${indexedCount} indexed · never synced`
+            : `${t('stars.summary', { n: knownCount, indexed: indexedCount })} · ${t('common.neverSynced')}`
         }
         rightAction={
           <button
@@ -799,16 +806,16 @@ export function App(): JSX.Element {
             disabled={syncState === 'syncing' || rateLimited}
             title={
               rateLimited
-                ? `Rate-limited by GitHub. Retry in ${Math.ceil(rateLimitedFor / 60)} min.`
+                ? t('sync.waitMin', { n: Math.ceil(rateLimitedFor / 60) })
                 : undefined
             }
             style={styles.smallButton}
           >
             {syncState === 'syncing'
-              ? 'Syncing…'
+              ? t('sync.syncing')
               : rateLimited
-                ? `Wait ${Math.ceil(rateLimitedFor / 60)}m`
-                : 'Sync'}
+                ? t('sync.waitMin', { n: Math.ceil(rateLimitedFor / 60) })
+                : t('sync.button')}
           </button>
         }
       />
@@ -845,7 +852,9 @@ export function App(): JSX.Element {
 
       {/* AI provider setup — only when key is missing. v1 ships 3 OpenAI-
           compatible presets covering both China-region (SiliconFlow + Qwen)
-          and global (OpenAI). Custom baseUrl deferred to v0.2. */}
+          and global (OpenAI). Custom baseUrl deferred to v0.2.
+          Always rendered with the LanguagePicker so user can switch UI
+          language even before any AI key is configured. */}
       {aiKey === '' && (
         <AiProviderCard
           providerDraft={aiProviderDraft}
@@ -855,6 +864,9 @@ export function App(): JSX.Element {
           onSave={() => void onSaveAiKey()}
         />
       )}
+      {/* Language picker — always available as a standalone control so
+          a user who already saved their AI key can still switch UI lang. */}
+      {aiKey !== '' && <LanguageQuickPicker />}
 
       {/* Build index button — gated on having OpenAI key + stars to index */}
       {aiKey !== '' && needsRebuild && embedState === 'idle' && (
@@ -1012,9 +1024,10 @@ export function App(): JSX.Element {
                   })
                 }
                 style={styles.footerLink}
-                title="Open the full-page management view — filter by language, hide forks/archived, sort by recency or stars"
               >
-                📚 Manage all {knownCount.toLocaleString()} stars
+                {t('settings.footer.manageAll', {
+                  n: knownCount.toLocaleString(),
+                })}
               </button>
               <span style={styles.footerSep}>·</span>
             </>
@@ -1024,9 +1037,8 @@ export function App(): JSX.Element {
             target="_blank"
             rel="noreferrer"
             style={styles.footerLink}
-            title="Open the project README on GitHub — feature tour, FAQ, privacy policy"
           >
-            📖 README
+            {t('settings.footer.readme')}
           </a>
           <span style={styles.footerSep}>·</span>
           <button
@@ -1034,7 +1046,7 @@ export function App(): JSX.Element {
             onClick={() => void onClearAll()}
             style={styles.linkButton}
           >
-            Reset keys &amp; clear cache
+            {t('settings.footer.reset')}
           </button>
         </div>
       </footer>
@@ -1089,10 +1101,25 @@ function AiProviderCard(props: {
   readonly onKeyChange: (v: string) => void;
   readonly onSave: () => void;
 }): JSX.Element {
+  const { t, locale, setLocale } = useI18n();
   const preset = AI_PRESETS[props.providerDraft];
   return (
     <section style={styles.card}>
-      <label style={styles.label}>AI Provider</label>
+      {/* Language picker top — set this first so the rest of the setup
+       *  flow renders in the user's preferred locale. */}
+      <label style={styles.label}>{t('settings.ai.language')}</label>
+      <select
+        value={locale}
+        onChange={(e) => setLocale(e.target.value as LocaleId)}
+        style={styles.input}
+      >
+        {LOCALE_ORDER.map((id) => (
+          <option key={id} value={id}>
+            {LOCALE_LABELS[id]}
+          </option>
+        ))}
+      </select>
+      <label style={styles.label}>{t('settings.ai.providerLabel')}</label>
       <select
         value={props.providerDraft}
         onChange={(e) => props.onProviderChange(e.target.value as AiPresetId)}
@@ -1132,7 +1159,7 @@ function AiProviderCard(props: {
         style={styles.input}
       />
       <p style={styles.helpText}>
-        Stored locally in this extension. Sent only to{' '}
+        {t('settings.ai.storedLocallyPrefix')}
         <code>{new URL(preset.baseUrl).host}</code>.
       </p>
       <button
@@ -1141,9 +1168,35 @@ function AiProviderCard(props: {
         disabled={props.keyDraft.trim().length === 0}
         style={styles.primaryButton}
       >
-        Save
+        {t('common.save')}
       </button>
     </section>
+  );
+}
+
+/**
+ * Compact language-only picker for the case where the user already saved
+ * an AI key (so AiProviderCard isn't on screen) but still wants to switch
+ * UI language. Renders a single &lt;select&gt; with no surrounding card,
+ * minimal visual weight so it doesn't compete with the main action row.
+ */
+function LanguageQuickPicker(): JSX.Element {
+  const { t, locale, setLocale } = useI18n();
+  return (
+    <div style={styles.langPickerRow}>
+      <label style={styles.langPickerLabel}>{t('settings.ai.language')}:</label>
+      <select
+        value={locale}
+        onChange={(e) => setLocale(e.target.value as LocaleId)}
+        style={styles.langPickerSelect}
+      >
+        {LOCALE_ORDER.map((id) => (
+          <option key={id} value={id}>
+            {LOCALE_LABELS[id]}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }
 
@@ -1553,5 +1606,24 @@ const styles = {
   footerSep: {
     fontSize: '11px',
     opacity: 0.35,
+  },
+  langPickerRow: {
+    display: 'flex',
+    alignItems: 'center' as const,
+    gap: '6px',
+    padding: '4px 2px',
+    fontSize: '11px',
+    opacity: 0.7,
+  },
+  langPickerLabel: {
+    fontWeight: 500,
+  },
+  langPickerSelect: {
+    padding: '2px 6px',
+    border: '1px solid rgba(127, 127, 127, 0.25)',
+    borderRadius: '4px',
+    background: 'transparent',
+    color: 'inherit',
+    fontSize: '11px',
   },
 } as const;

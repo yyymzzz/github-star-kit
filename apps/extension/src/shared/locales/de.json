@@ -1,0 +1,89 @@
+{
+  "common": {
+    "save": "Speichern",
+    "loading": "lädt…",
+    "neverSynced": "noch nicht synchronisiert",
+    "starred": "markiert",
+    "pushed": "gepusht"
+  },
+  "header": {
+    "appName": "GitHub Star Kit",
+    "lastSynced": "zuletzt synchronisiert"
+  },
+  "sync": {
+    "button": "Sync",
+    "syncing": "Synchronisiere…",
+    "waitMin": "Warte {n} Min"
+  },
+  "settings": {
+    "pat": {
+      "label": "GitHub Personal Access Token",
+      "help": "Benötigt public_repo (oder repo für private). Lokal gespeichert, nur an api.github.com gesendet.",
+      "placeholder": "ghp_…",
+      "promptSubtitle": "GitHub PAT einfügen, um zu beginnen"
+    },
+    "ai": {
+      "providerLabel": "KI-Anbieter",
+      "keyPlaceholder": "sk-…",
+      "storedLocallyPrefix": "Lokal in dieser Erweiterung gespeichert. Nur gesendet an ",
+      "language": "Sprache"
+    },
+    "footer": {
+      "manageAll": "📚 Alle {n} Stars verwalten",
+      "readme": "📖 README",
+      "reset": "Keys zurücksetzen & Cache löschen"
+    }
+  },
+  "search": {
+    "placeholder": "Markierte Repos durchsuchen… (semantisch)",
+    "go": "Los",
+    "buildFirst": "Bitte zuerst den Suchindex erstellen."
+  },
+  "index": {
+    "buildButton": "Suchindex erstellen ({n} Stars)",
+    "updateButton": "Suchindex aktualisieren ({n} neue)",
+    "embeddingProgress": "Embedding {done}/{total}",
+    "percentIndexed": "{pct}% indiziert"
+  },
+  "tag": {
+    "autoTagButton": "{n} Repos automatisch taggen",
+    "autoTagButtonOne": "{n} Repo automatisch taggen",
+    "taggingProgress": "Tagge {done}/{total}…"
+  },
+  "digest": {
+    "button": "📰 Wochenübersicht",
+    "headerSummary": "Wochenübersicht — Top {shown} von {total} diese Woche",
+    "unrankedSuffix": "(+{n} ohne Rang, noch nicht eingebettet)",
+    "noActivity": "Keine kürzliche Aktivität.",
+    "noActivityHelp": "Keine markierten Repos wurden in den letzten 7 Tagen gepusht.",
+    "backToRecent": "← Zuletzt"
+  },
+  "deepIndex": {
+    "button": "🔧 Top {n} tief indizieren",
+    "buttonMore": "🔧 {n} weitere tief indizieren",
+    "progress": "Indiziere {repo} ({done}/{total})…",
+    "noNewRepos": "Top {n} nach Stars sind bereits abgedeckt."
+  },
+  "stars": {
+    "noStarsCached": "Noch keine Stars im Cache.",
+    "syncPrompt": "Klicke Sync, um deine Stars von GitHub zu laden.",
+    "summary": "{n} Stars · {indexed} indiziert"
+  },
+  "manage": {
+    "title": "🌟 GitHub Star Kit · Verwalten",
+    "loadingSubtitle": "Lade markierte Repos…",
+    "noStarsSubtitle": "Noch keine Stars im Cache — Popup öffnen und Sync klicken.",
+    "showingOfTotal": "Zeige {shown} von {total} Stars",
+    "searchPlaceholder": "Nach Name oder Beschreibung filtern…",
+    "languageLabel": "Sprache",
+    "languageAll": "Alle",
+    "sortBy": "Sortieren",
+    "sortStarred": "Zuletzt markiert",
+    "sortPushed": "Zuletzt gepusht",
+    "sortStars": "Meiste Stars",
+    "hideArchived": "Archivierte ausblenden",
+    "hideForks": "Forks ausblenden",
+    "noMatch": "Keine Stars entsprechen den Filtern.",
+    "noMatchHelp": "Suchfeld leeren, Sprache auf \"Alle\" setzen oder \"Archivierte/Forks ausblenden\" deaktivieren."
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "common": {
+    "save": "저장",
+    "loading": "로드 중…",
+    "neverSynced": "동기화되지 않음",
+    "starred": "스타",
+    "pushed": "푸시"
+  },
+  "header": {
+    "appName": "GitHub Star Kit",
+    "lastSynced": "마지막 동기화"
+  },
+  "sync": {
+    "button": "동기화",
+    "syncing": "동기화 중…",
+    "waitMin": "{n}분 대기"
+  },
+  "settings": {
+    "pat": {
+      "label": "GitHub Personal Access Token",
+      "help": "public_repo 권한 필요(비공개 스타에는 repo). 로컬에 저장되며 api.github.com에만 전송됩니다.",
+      "placeholder": "ghp_…",
+      "promptSubtitle": "GitHub PAT를 붙여넣으세요"
+    },
+    "ai": {
+      "providerLabel": "AI 제공업체",
+      "keyPlaceholder": "sk-…",
+      "storedLocallyPrefix": "이 확장에 로컬로 저장됩니다. 전송 대상: ",
+      "language": "인터페이스 언어"
+    },
+    "footer": {
+      "manageAll": "📚 전체 {n}개 스타 관리",
+      "readme": "📖 README",
+      "reset": "키 재설정 및 캐시 지우기"
+    }
+  },
+  "search": {
+    "placeholder": "스타한 저장소 검색… (의미 기반)",
+    "go": "검색",
+    "buildFirst": "먼저 검색 인덱스를 만드세요."
+  },
+  "index": {
+    "buildButton": "검색 인덱스 만들기 ({n}개)",
+    "updateButton": "검색 인덱스 업데이트 ({n}개 추가)",
+    "embeddingProgress": "임베딩 생성 중 {done}/{total}",
+    "percentIndexed": "{pct}% 인덱싱됨"
+  },
+  "tag": {
+    "autoTagButton": "{n}개 저장소 자동 태그",
+    "autoTagButtonOne": "{n}개 저장소 자동 태그",
+    "taggingProgress": "태그 지정 중 {done}/{total}…"
+  },
+  "digest": {
+    "button": "📰 주간 다이제스트",
+    "headerSummary": "주간 다이제스트 — 이번 주 후보 {total}개 중 상위 {shown}개",
+    "unrankedSuffix": "(아직 임베딩되지 않은 {n}개는 순위 외)",
+    "noActivity": "최근 활동이 없습니다.",
+    "noActivityHelp": "스타한 저장소 중 지난 7일 동안 푸시된 것이 없습니다.",
+    "backToRecent": "← 최근"
+  },
+  "deepIndex": {
+    "button": "🔧 상위 {n}개 심층 인덱싱",
+    "buttonMore": "🔧 추가로 {n}개 심층 인덱싱",
+    "progress": "{repo} 심층 인덱싱 중 ({done}/{total})…",
+    "noNewRepos": "스타 수 상위 {n}개를 이미 모두 다뤘습니다."
+  },
+  "stars": {
+    "noStarsCached": "캐시된 스타가 없습니다.",
+    "syncPrompt": "「동기화」를 클릭하여 GitHub에서 스타를 가져오세요.",
+    "summary": "스타 {n}개 · 인덱싱 {indexed}개"
+  },
+  "manage": {
+    "title": "🌟 GitHub Star Kit · 관리",
+    "loadingSubtitle": "스타한 저장소를 로드 중…",
+    "noStarsSubtitle": "캐시 없음 — 팝업을 열고 동기화를 클릭하세요.",
+    "showingOfTotal": "{total}개 중 {shown}개 표시",
+    "searchPlaceholder": "이름 또는 설명으로 필터링…",
+    "languageLabel": "언어",
+    "languageAll": "전체",
+    "sortBy": "정렬",
+    "sortStarred": "최근 스타순",
+    "sortPushed": "최근 푸시순",
+    "sortStars": "스타 수",
+    "hideArchived": "보관됨 숨기기",
+    "hideForks": "Fork 숨기기",
+    "noMatch": "조건에 맞는 스타가 없습니다.",
+    "noMatchHelp": "검색창을 비우거나, 언어를 \"전체\"로 변경하거나, \"보관됨/Fork 숨기기\"를 해제해 보세요."
+  }
+}

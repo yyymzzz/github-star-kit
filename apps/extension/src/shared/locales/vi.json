@@ -1,0 +1,89 @@
+{
+  "common": {
+    "save": "Lưu",
+    "loading": "đang tải…",
+    "neverSynced": "chưa đồng bộ",
+    "starred": "đã star",
+    "pushed": "đã push"
+  },
+  "header": {
+    "appName": "GitHub Star Kit",
+    "lastSynced": "đồng bộ gần nhất"
+  },
+  "sync": {
+    "button": "Sync",
+    "syncing": "Đang đồng bộ…",
+    "waitMin": "Chờ {n}p"
+  },
+  "settings": {
+    "pat": {
+      "label": "GitHub Personal Access Token",
+      "help": "Cần phạm vi public_repo (hoặc repo cho private). Lưu cục bộ, chỉ gửi đến api.github.com.",
+      "placeholder": "ghp_…",
+      "promptSubtitle": "Dán GitHub PAT để bắt đầu"
+    },
+    "ai": {
+      "providerLabel": "Nhà cung cấp AI",
+      "keyPlaceholder": "sk-…",
+      "storedLocallyPrefix": "Lưu cục bộ trong extension này. Chỉ gửi đến ",
+      "language": "Ngôn ngữ"
+    },
+    "footer": {
+      "manageAll": "📚 Quản lý {n} stars",
+      "readme": "📖 README",
+      "reset": "Đặt lại keys & xóa cache"
+    }
+  },
+  "search": {
+    "placeholder": "Tìm trong stars… (ngữ nghĩa)",
+    "go": "OK",
+    "buildFirst": "Hãy tạo chỉ mục tìm kiếm trước."
+  },
+  "index": {
+    "buildButton": "Tạo chỉ mục ({n} stars)",
+    "updateButton": "Cập nhật chỉ mục ({n} mới)",
+    "embeddingProgress": "Embedding {done}/{total}",
+    "percentIndexed": "Đã chỉ mục {pct}%"
+  },
+  "tag": {
+    "autoTagButton": "Tự gắn tag {n} repos",
+    "autoTagButtonOne": "Tự gắn tag {n} repo",
+    "taggingProgress": "Đang gắn tag {done}/{total}…"
+  },
+  "digest": {
+    "button": "📰 Tóm tắt tuần",
+    "headerSummary": "Tóm tắt tuần — top {shown} trên {total} tuần này",
+    "unrankedSuffix": "(+{n} chưa xếp hạng, chưa embed)",
+    "noActivity": "Không có hoạt động gần đây.",
+    "noActivityHelp": "Không có repo nào trong stars được push trong 7 ngày qua.",
+    "backToRecent": "← Gần đây"
+  },
+  "deepIndex": {
+    "button": "🔧 Index sâu top {n}",
+    "buttonMore": "🔧 Index sâu thêm {n}",
+    "progress": "Đang index {repo} ({done}/{total})…",
+    "noNewRepos": "Top {n} theo stars đã được cover."
+  },
+  "stars": {
+    "noStarsCached": "Chưa có stars trong cache.",
+    "syncPrompt": "Bấm Sync để lấy stars từ GitHub.",
+    "summary": "{n} stars · {indexed} đã index"
+  },
+  "manage": {
+    "title": "🌟 GitHub Star Kit · Quản lý",
+    "loadingSubtitle": "Đang tải stars…",
+    "noStarsSubtitle": "Cache trống — mở popup và bấm Sync.",
+    "showingOfTotal": "Hiển thị {shown} / {total} stars",
+    "searchPlaceholder": "Lọc theo tên hoặc mô tả…",
+    "languageLabel": "Ngôn ngữ",
+    "languageAll": "Tất cả",
+    "sortBy": "Sắp xếp",
+    "sortStarred": "Star gần đây",
+    "sortPushed": "Push gần đây",
+    "sortStars": "Nhiều stars nhất",
+    "hideArchived": "Ẩn đã lưu trữ",
+    "hideForks": "Ẩn fork",
+    "noMatch": "Không có star phù hợp.",
+    "noMatchHelp": "Xóa ô tìm kiếm, đổi ngôn ngữ về \"Tất cả\", hoặc tắt \"Ẩn đã lưu trữ/fork\"."
+  }
+}

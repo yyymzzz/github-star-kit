@@ -1,0 +1,89 @@
+{
+  "common": {
+    "save": "Save",
+    "loading": "loading…",
+    "neverSynced": "never synced",
+    "starred": "starred",
+    "pushed": "pushed"
+  },
+  "header": {
+    "appName": "GitHub Star Kit",
+    "lastSynced": "last synced"
+  },
+  "sync": {
+    "button": "Sync",
+    "syncing": "Syncing…",
+    "waitMin": "Wait {n}m"
+  },
+  "settings": {
+    "pat": {
+      "label": "GitHub Personal Access Token",
+      "help": "Needs public_repo scope (or repo for private). Stored locally; sent only to api.github.com.",
+      "placeholder": "ghp_…",
+      "promptSubtitle": "paste a GitHub PAT to begin"
+    },
+    "ai": {
+      "providerLabel": "AI Provider",
+      "keyPlaceholder": "sk-…",
+      "storedLocallyPrefix": "Stored locally in this extension. Sent only to ",
+      "language": "Language"
+    },
+    "footer": {
+      "manageAll": "📚 Manage all {n} stars",
+      "readme": "📖 README",
+      "reset": "Reset keys & clear cache"
+    }
+  },
+  "search": {
+    "placeholder": "Search starred repos… (semantic)",
+    "go": "Go",
+    "buildFirst": "Build the search index first."
+  },
+  "index": {
+    "buildButton": "Build search index ({n} stars)",
+    "updateButton": "Update search index ({n} new)",
+    "embeddingProgress": "Embedding {done}/{total}",
+    "percentIndexed": "{pct}% indexed"
+  },
+  "tag": {
+    "autoTagButton": "Auto-tag {n} repos",
+    "autoTagButtonOne": "Auto-tag {n} repo",
+    "taggingProgress": "Tagging {done}/{total}…"
+  },
+  "digest": {
+    "button": "📰 Weekly digest",
+    "headerSummary": "Weekly digest — top {shown} of {total} this week",
+    "unrankedSuffix": "(+{n} unranked, not yet embedded)",
+    "noActivity": "No recent activity.",
+    "noActivityHelp": "No starred repos have been pushed in the last 7 days.",
+    "backToRecent": "← Recent"
+  },
+  "deepIndex": {
+    "button": "🔧 Deep-index top {n}",
+    "buttonMore": "🔧 Deep-index +{n} more",
+    "progress": "Deep-indexing {repo} ({done}/{total})…",
+    "noNewRepos": "No new repos to deep-index (already covered top {n} by stars)."
+  },
+  "stars": {
+    "noStarsCached": "No stars cached yet.",
+    "syncPrompt": "Click Sync to pull your stars from GitHub.",
+    "summary": "{n} stars · {indexed} indexed"
+  },
+  "manage": {
+    "title": "🌟 GitHub Star Kit · Manage",
+    "loadingSubtitle": "Loading your starred repos…",
+    "noStarsSubtitle": "No stars cached yet — open the popup and click Sync first.",
+    "showingOfTotal": "Showing {shown} of {total} stars",
+    "searchPlaceholder": "Filter by name or description…",
+    "languageLabel": "Language",
+    "languageAll": "All",
+    "sortBy": "Sort by",
+    "sortStarred": "Recently starred",
+    "sortPushed": "Recently pushed",
+    "sortStars": "Most stars",
+    "hideArchived": "Hide archived",
+    "hideForks": "Hide forks",
+    "noMatch": "No stars match these filters.",
+    "noMatchHelp": "Try clearing the search box, switching language to \"All\", or toggling \"Hide archived\" / \"Hide forks\" off."
+  }
+}

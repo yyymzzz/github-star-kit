@@ -1,0 +1,89 @@
+{
+  "common": {
+    "save": "保存",
+    "loading": "読み込み中…",
+    "neverSynced": "未同期",
+    "starred": "スター",
+    "pushed": "プッシュ"
+  },
+  "header": {
+    "appName": "GitHub Star Kit",
+    "lastSynced": "最終同期"
+  },
+  "sync": {
+    "button": "同期",
+    "syncing": "同期中…",
+    "waitMin": "{n} 分待機"
+  },
+  "settings": {
+    "pat": {
+      "label": "GitHub Personal Access Token",
+      "help": "public_repo スコープが必要(プライベートには repo)。ローカル保存、api.github.com にのみ送信。",
+      "placeholder": "ghp_…",
+      "promptSubtitle": "GitHub PAT を貼り付けてください"
+    },
+    "ai": {
+      "providerLabel": "AI プロバイダー",
+      "keyPlaceholder": "sk-…",
+      "storedLocallyPrefix": "この拡張機能内にローカル保存されます。送信先: ",
+      "language": "表示言語"
+    },
+    "footer": {
+      "manageAll": "📚 全 {n} 件のスターを管理",
+      "readme": "📖 README",
+      "reset": "キーをリセットしてキャッシュをクリア"
+    }
+  },
+  "search": {
+    "placeholder": "スター済みリポジトリを検索…(セマンティック)",
+    "go": "検索",
+    "buildFirst": "まず検索インデックスを作成してください。"
+  },
+  "index": {
+    "buildButton": "検索インデックスを作成 ({n} 件)",
+    "updateButton": "検索インデックスを更新 ({n} 件追加)",
+    "embeddingProgress": "埋め込み生成中 {done}/{total}",
+    "percentIndexed": "{pct}% インデックス済"
+  },
+  "tag": {
+    "autoTagButton": "{n} 件のリポジトリに自動タグ",
+    "autoTagButtonOne": "{n} 件のリポジトリに自動タグ",
+    "taggingProgress": "タグ付け中 {done}/{total}…"
+  },
+  "digest": {
+    "button": "📰 ウィークリーダイジェスト",
+    "headerSummary": "今週のダイジェスト — 候補 {total} 件中の上位 {shown} 件",
+    "unrankedSuffix": "(他 {n} 件は未埋め込みのため未ランク)",
+    "noActivity": "最近のアクティビティはありません。",
+    "noActivityHelp": "あなたがスター済みのリポジトリで、過去 7 日間のプッシュはありません。",
+    "backToRecent": "← 最近のスター"
+  },
+  "deepIndex": {
+    "button": "🔧 上位 {n} 件をディープインデックス",
+    "buttonMore": "🔧 さらに {n} 件をディープインデックス",
+    "progress": "{repo} をディープインデックス中 ({done}/{total})…",
+    "noNewRepos": "スター数上位 {n} 件は既にカバー済みです。"
+  },
+  "stars": {
+    "noStarsCached": "まだスターがキャッシュされていません。",
+    "syncPrompt": "「同期」をクリックして GitHub からスターを取得します。",
+    "summary": "{n} 件のスター · {indexed} 件インデックス済"
+  },
+  "manage": {
+    "title": "🌟 GitHub Star Kit · 管理",
+    "loadingSubtitle": "スター済みリポジトリを読み込み中…",
+    "noStarsSubtitle": "キャッシュがありません — ポップアップで「同期」を押してください。",
+    "showingOfTotal": "{shown} / {total} 件を表示",
+    "searchPlaceholder": "名前または説明で絞り込み…",
+    "languageLabel": "言語",
+    "languageAll": "すべて",
+    "sortBy": "並べ替え",
+    "sortStarred": "スター順(新しい順)",
+    "sortPushed": "プッシュ順(新しい順)",
+    "sortStars": "スター数",
+    "hideArchived": "アーカイブを非表示",
+    "hideForks": "Fork を非表示",
+    "noMatch": "条件に合うスターがありません。",
+    "noMatchHelp": "検索ボックスをクリア、言語を「すべて」に戻す、または「アーカイブ/Fork を非表示」をオフにしてみてください。"
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "common": {
+    "save": "儲存",
+    "loading": "載入中…",
+    "neverSynced": "尚未同步",
+    "starred": "收藏於",
+    "pushed": "推送於"
+  },
+  "header": {
+    "appName": "GitHub Star Kit",
+    "lastSynced": "上次同步"
+  },
+  "sync": {
+    "button": "同步",
+    "syncing": "同步中…",
+    "waitMin": "等待 {n} 分鐘"
+  },
+  "settings": {
+    "pat": {
+      "label": "GitHub 個人存取權杖 (PAT)",
+      "help": "需要 public_repo 範圍（私有 star 需要 repo 範圍）。本地儲存,僅傳送到 api.github.com。",
+      "placeholder": "ghp_…",
+      "promptSubtitle": "貼上 GitHub PAT 開始使用"
+    },
+    "ai": {
+      "providerLabel": "AI 服務商",
+      "keyPlaceholder": "sk-…",
+      "storedLocallyPrefix": "本地儲存在此擴充功能中。僅傳送到 ",
+      "language": "介面語言"
+    },
+    "footer": {
+      "manageAll": "📚 管理全部 {n} 個 star",
+      "readme": "📖 使用說明",
+      "reset": "重設金鑰並清除快取"
+    }
+  },
+  "search": {
+    "placeholder": "搜尋你的 star 倉庫… (語意搜尋)",
+    "go": "搜尋",
+    "buildFirst": "請先建立搜尋索引。"
+  },
+  "index": {
+    "buildButton": "建立搜尋索引 ({n} 個 star)",
+    "updateButton": "更新搜尋索引 ({n} 個新增)",
+    "embeddingProgress": "正在生成嵌入 {done}/{total}",
+    "percentIndexed": "已索引 {pct}%"
+  },
+  "tag": {
+    "autoTagButton": "自動標籤 {n} 個倉庫",
+    "autoTagButtonOne": "自動標籤 {n} 個倉庫",
+    "taggingProgress": "正在打標籤 {done}/{total}…"
+  },
+  "digest": {
+    "button": "📰 每週精選",
+    "headerSummary": "每週精選 — 本週共 {total} 個候選,展示前 {shown} 個",
+    "unrankedSuffix": "(還有 {n} 個未排序,因尚未嵌入)",
+    "noActivity": "近期無活動。",
+    "noActivityHelp": "你 star 的倉庫中,過去 7 天沒有任何推送。",
+    "backToRecent": "← 返回最近"
+  },
+  "deepIndex": {
+    "button": "🔧 深度索引前 {n} 個",
+    "buttonMore": "🔧 再深度索引 {n} 個",
+    "progress": "正在深度索引 {repo} ({done}/{total})…",
+    "noNewRepos": "已覆蓋按 star 數排名前 {n} 的倉庫,無新倉庫可深度索引。"
+  },
+  "stars": {
+    "noStarsCached": "尚無快取的 star。",
+    "syncPrompt": "點擊「同步」從 GitHub 拉取你的 star。",
+    "summary": "{n} 個 star · 已索引 {indexed} 個"
+  },
+  "manage": {
+    "title": "🌟 GitHub Star Kit · 管理",
+    "loadingSubtitle": "正在載入你 star 的倉庫…",
+    "noStarsSubtitle": "尚無快取 — 請打開 popup 點擊同步。",
+    "showingOfTotal": "展示 {shown} / {total} 個 star",
+    "searchPlaceholder": "按名稱或描述過濾…",
+    "languageLabel": "語言",
+    "languageAll": "全部",
+    "sortBy": "排序",
+    "sortStarred": "最近 star",
+    "sortPushed": "最近推送",
+    "sortStars": "star 數最多",
+    "hideArchived": "隱藏已封存",
+    "hideForks": "隱藏 fork",
+    "noMatch": "沒有符合的 star。",
+    "noMatchHelp": "試試清空搜尋框、把語言切回\"全部\",或取消勾選\"隱藏已封存\"/\"隱藏 fork\"。"
+  }
+}

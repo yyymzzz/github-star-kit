@@ -31,6 +31,17 @@ export const KV_KEY_AI_KEY = 'ai.apiKey';
  */
 export const KV_KEY_AI_PROVIDER = 'ai.provider';
 
+/**
+ * Key for the user-selected UI locale (one of `LocaleId` from i18n.ts).
+ * Read at popup mount + manage page mount to seed the I18nProvider; written
+ * via kvStore.set whenever the user picks a different language from the
+ * dropdown. Persists across popup re-opens.
+ *
+ * When unset, the provider auto-detects from `navigator.language` and falls
+ * back to English if nothing matches the bundled set.
+ */
+export const KV_KEY_LOCALE = 'ui.locale';
+
 /** chrome.alarms name for the periodic sync schedule. */
 export const ALARM_NAME = 'starkit-sync';
 

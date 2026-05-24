@@ -1,0 +1,89 @@
+{
+  "common": {
+    "save": "Сохранить",
+    "loading": "загрузка…",
+    "neverSynced": "не синхронизировано",
+    "starred": "отмечено",
+    "pushed": "обновлено"
+  },
+  "header": {
+    "appName": "GitHub Star Kit",
+    "lastSynced": "последняя синхронизация"
+  },
+  "sync": {
+    "button": "Sync",
+    "syncing": "Синхронизация…",
+    "waitMin": "Подождите {n}мин"
+  },
+  "settings": {
+    "pat": {
+      "label": "Personal Access Token GitHub",
+      "help": "Нужна область public_repo (или repo для приватных). Хранится локально, отправляется только на api.github.com.",
+      "placeholder": "ghp_…",
+      "promptSubtitle": "Вставьте PAT GitHub для начала"
+    },
+    "ai": {
+      "providerLabel": "Провайдер ИИ",
+      "keyPlaceholder": "sk-…",
+      "storedLocallyPrefix": "Хранится локально в этом расширении. Отправляется только на ",
+      "language": "Язык"
+    },
+    "footer": {
+      "manageAll": "📚 Управление всеми {n} звёздами",
+      "readme": "📖 README",
+      "reset": "Сбросить ключи и кэш"
+    }
+  },
+  "search": {
+    "placeholder": "Поиск по отмеченным репо… (семантический)",
+    "go": "OK",
+    "buildFirst": "Сначала постройте поисковый индекс."
+  },
+  "index": {
+    "buildButton": "Построить индекс ({n} звёзд)",
+    "updateButton": "Обновить индекс ({n} новых)",
+    "embeddingProgress": "Эмбеддинг {done}/{total}",
+    "percentIndexed": "{pct}% индексировано"
+  },
+  "tag": {
+    "autoTagButton": "Авто-теги для {n} репо",
+    "autoTagButtonOne": "Авто-теги для {n} репо",
+    "taggingProgress": "Тегирование {done}/{total}…"
+  },
+  "digest": {
+    "button": "📰 Еженедельный дайджест",
+    "headerSummary": "Дайджест — топ {shown} из {total} на этой неделе",
+    "unrankedSuffix": "(+{n} без ранга, не эмбеддированы)",
+    "noActivity": "Нет недавней активности.",
+    "noActivityHelp": "В отмеченных репо не было push за последние 7 дней.",
+    "backToRecent": "← Недавние"
+  },
+  "deepIndex": {
+    "button": "🔧 Глубокая индексация топ {n}",
+    "buttonMore": "🔧 Ещё {n} в глубокий индекс",
+    "progress": "Индексация {repo} ({done}/{total})…",
+    "noNewRepos": "Топ {n} по звёздам уже покрыт."
+  },
+  "stars": {
+    "noStarsCached": "Нет звёзд в кэше.",
+    "syncPrompt": "Нажмите Sync, чтобы получить звёзды с GitHub.",
+    "summary": "{n} звёзд · {indexed} индексировано"
+  },
+  "manage": {
+    "title": "🌟 GitHub Star Kit · Управление",
+    "loadingSubtitle": "Загрузка отмеченных репо…",
+    "noStarsSubtitle": "Кэш пуст — откройте попап и нажмите Sync.",
+    "showingOfTotal": "Показано {shown} из {total}",
+    "searchPlaceholder": "Фильтр по имени или описанию…",
+    "languageLabel": "Язык",
+    "languageAll": "Все",
+    "sortBy": "Сортировка",
+    "sortStarred": "Недавно отмеченные",
+    "sortPushed": "Недавно push",
+    "sortStars": "Больше звёзд",
+    "hideArchived": "Скрыть архивные",
+    "hideForks": "Скрыть форки",
+    "noMatch": "Нет звёзд по фильтрам.",
+    "noMatchHelp": "Очистите поиск, переключите язык на \"Все\", или отключите \"Скрыть архивные/форки\"."
+  }
+}
