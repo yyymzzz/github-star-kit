@@ -8,7 +8,13 @@
       :root { color-scheme: light dark; }
       html, body { margin: 0; padding: 0; }
       body {
-        width: 380px;
+        /* W6 polish: 380px was the W1 baseline when the popup was just PAT
+         * input + 10 stars. Now we render: long-form subtitle (e.g.
+         * "1234 stars · 567 indexed · 3m ago") + Sync button + search input
+         * with Go button + 3 action buttons in a flex row + code snippets
+         * with file:line permalinks. 480px is the standard Chrome-extension
+         * popup width that fits all of this without truncation. */
+        width: 480px;
         min-height: 480px;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         font-size: 14px;

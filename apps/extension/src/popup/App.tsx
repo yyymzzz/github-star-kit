@@ -989,11 +989,19 @@ function Header(props: {
 }): JSX.Element {
   return (
     <header style={styles.header}>
-      <div>
+      {/* min-width:0 + overflow:hidden lets a long subtitle truncate inside
+       *  the flex item instead of pushing the right action off-screen — the
+       *  W6 popup-truncation bug surfaced by user feedback when 1000+
+       *  starred users saw "Syn" instead of "Sync" because the long status
+       *  string ("1234 stars · 567 indexed · last synced 5m ago") forced
+       *  the title div to grow past the right edge. */}
+      <div style={styles.headerTitleSlot}>
         <h1 style={styles.title}>GitHub Star Kit</h1>
         <p style={styles.subtitle}>{props.subtitle}</p>
       </div>
-      {props.rightAction}
+      {props.rightAction && (
+        <div style={styles.headerActionSlot}>{props.rightAction}</div>
+      )}
     </header>
   );
 }
@@ -1136,7 +1144,7 @@ const styles = {
     flexDirection: 'column' as const,
     gap: '12px',
     minHeight: '480px',
-    minWidth: '380px',
+    // No explicit width here — body sets 480px (index.html); shell fills.
   },
   header: {
     display: 'flex',
@@ -1144,15 +1152,36 @@ const styles = {
     alignItems: 'center' as const,
     gap: '8px',
   },
+  /** Title + subtitle column. min-width:0 is the trick that lets flex
+   *  shrink THIS child to make room for the right action, so a long
+   *  subtitle truncates with an ellipsis instead of pushing siblings out. */
+  headerTitleSlot: {
+    minWidth: 0,
+    flex: '1 1 auto',
+    overflow: 'hidden' as const,
+  },
+  /** Right-side action slot. flex-shrink:0 pins the button at its natural
+   *  width regardless of how long the title gets. white-space:nowrap on the
+   *  button itself (styles.smallButton) keeps "Sync" / "Syncing…" / "Wait Nm"
+   *  on one line. */
+  headerActionSlot: {
+    flexShrink: 0,
+  },
   title: {
     margin: 0,
     fontSize: '17px',
     fontWeight: 600,
+    overflow: 'hidden' as const,
+    textOverflow: 'ellipsis' as const,
+    whiteSpace: 'nowrap' as const,
   },
   subtitle: {
     margin: '2px 0 0',
     fontSize: '11px',
     opacity: 0.7,
+    overflow: 'hidden' as const,
+    textOverflow: 'ellipsis' as const,
+    whiteSpace: 'nowrap' as const,
   },
   card: {
     padding: '12px',
@@ -1244,6 +1273,7 @@ const styles = {
     borderRadius: '6px',
     fontSize: '12px',
     cursor: 'pointer',
+    whiteSpace: 'nowrap' as const,
   },
   linkButton: {
     background: 'transparent',
