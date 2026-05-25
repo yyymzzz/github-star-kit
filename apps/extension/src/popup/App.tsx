@@ -452,6 +452,10 @@ export function App(): JSX.Element {
     setEmbedState('embedding');
     setIndexProgress({ done: 0, total: knownCount });
     setError(null);
+    // R45: cancel for build-search-index (~30s-5min depending on
+    // provider + library size).
+    const abortCtrl = new AbortController();
+    setActiveAbort(abortCtrl);
 
     try {
       const { starStore, vectorStore } = await getStores();
@@ -461,6 +465,7 @@ export function App(): JSX.Element {
 
       const embedResult = await embedStars({
         starStore,
+        signal: abortCtrl.signal,
         // Adapter: AIProvider.embed takes an EmbedRequest object;
         // EmbedBatchFn wants positional (inputs, signal).
         embed: (inputs, signal) =>
@@ -511,9 +516,14 @@ export function App(): JSX.Element {
         );
       }
     } catch (err) {
-      setError(localizeError(err, t));
+      if (err instanceof Error && err.name === 'AbortError') {
+        setError(t('common.cancelled'));
+      } else {
+        setError(localizeError(err, t));
+      }
     } finally {
       setEmbedState('idle');
+      setActiveAbort(null);
     }
   }, [aiKey, aiProvider, embedState, knownCount]);
 
@@ -1251,15 +1261,27 @@ export function App(): JSX.Element {
       )}
 
       {embedState === 'embedding' && indexProgress && (
-        <div style={styles.notice}>
-          {t('index.embeddingProgress', {
-            done: indexProgress.done,
-            total: indexProgress.total,
-          })}
-          {indexCoverage !== null
-            ? ' · ' + t('index.percentIndexed', { pct: indexCoverage })
-            : ''}
-          …
+        <div style={styles.noticeWithCancel}>
+          <span>
+            {t('index.embeddingProgress', {
+              done: indexProgress.done,
+              total: indexProgress.total,
+            })}
+            {indexCoverage !== null
+              ? ' · ' + t('index.percentIndexed', { pct: indexCoverage })
+              : ''}
+            …
+          </span>
+          {/* R45: Cancel for embed run */}
+          {activeAbort && (
+            <button
+              type="button"
+              onClick={() => activeAbort.abort()}
+              style={styles.cancelLinkButton}
+            >
+              {t('common.cancel')}
+            </button>
+          )}
         </div>
       )}
 

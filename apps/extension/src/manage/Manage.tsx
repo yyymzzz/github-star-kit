@@ -132,6 +132,17 @@ export function Manage(): JSX.Element {
   // "now go to popup to search code" after a per-row deep-index finishes.
   // Auto-clears after 6s to not nag.
   const [successToast, setSuccessToast] = useState<string | null>(null);
+  // R44: parity with popup R40 — Cancel button for manage's bulk
+  // translate. Per-row deep-index ALSO needs cancel but is a Map<id,
+  // controller> instead because multiple rows can run concurrently.
+  const [activeAbort, setActiveAbort] = useState<AbortController | null>(
+    null
+  );
+  // R44: per-row abort controllers — keyed by starId so the row's
+  // Cancel button only kills THAT row's run (not other in-flight rows).
+  const [perRowAbort, setPerRowAbort] = useState<
+    ReadonlyMap<number, AbortController>
+  >(new Map());
   // R28 蓝军 MAJOR #1: stable ref to the toast-clear timer so back-to-back
   // deep-index clicks don't race. Prior code did `setTimeout(... 6000)`
   // without storing the id — overlapping clicks would let an earlier
@@ -470,6 +481,9 @@ export function Manage(): JSX.Element {
     setTranslateState('translating');
     setTranslateProgress({ done: 0, total: untranslatedCount });
     setError(null);
+    // R44: cancel for bulk translate (parity with popup R40).
+    const abortCtrl = new AbortController();
+    setActiveAbort(abortCtrl);
 
     try {
       // R34 蓝军 CRITICAL #1.1: hold the sync lock for the full translate
@@ -493,6 +507,7 @@ export function Manage(): JSX.Element {
 
       const translateResult = await translateStars({
         starStore,
+        signal: abortCtrl.signal,
         chat: (system, user, signal) =>
           provider
             .chat({
@@ -583,9 +598,15 @@ export function Manage(): JSX.Element {
         setError(t('sync.conflict'));
       }
     } catch (err) {
-      setError(localizeError(err, t));
+      // R44: AbortError = user pressed Cancel → subtle notice, not banner.
+      if (err instanceof Error && err.name === 'AbortError') {
+        setError(t('common.cancelled'));
+      } else {
+        setError(localizeError(err, t));
+      }
     } finally {
       setTranslateState('idle');
+      setActiveAbort(null);
     }
   }, [aiKey, aiProvider, locale, translateState, untranslatedCount]);
 
@@ -598,6 +619,10 @@ export function Manage(): JSX.Element {
       if (perRowState.has(star.id)) return; // Already in flight
       setError(null);
       setPerRowState((m) => new Map(m).set(star.id, 'indexing'));
+      // R44: per-row controller so Cancel button kills ONLY this row,
+      // not other rows that might be deep-indexing concurrently.
+      const rowAbort = new AbortController();
+      setPerRowAbort((m) => new Map(m).set(star.id, rowAbort));
 
       try {
         // R34 蓝军 CRITICAL #1.1: same sync-lock discipline as bulk
@@ -628,6 +653,7 @@ export function Manage(): JSX.Element {
         await indexRepoCode({
           starStore,
           repoId: star.id,
+          signal: rowAbort.signal,
           fetchSource: (o, r, signal) =>
             fetchRepoSource({
               client: githubClient,
@@ -694,9 +720,20 @@ export function Manage(): JSX.Element {
           setError(t('sync.conflict'));
         }
       } catch (err) {
-        setError(localizeError(err, t));
+        // R44: AbortError = user pressed per-row Cancel → green notice.
+        if (err instanceof Error && err.name === 'AbortError') {
+          setError(t('common.cancelled'));
+        } else {
+          setError(localizeError(err, t));
+        }
       } finally {
         setPerRowState((m) => {
+          const next = new Map(m);
+          next.delete(star.id);
+          return next;
+        });
+        // R44: drop the per-row controller now that this row's run ended.
+        setPerRowAbort((m) => {
           const next = new Map(m);
           next.delete(star.id);
           return next;
@@ -771,13 +808,25 @@ export function Manage(): JSX.Element {
       {locale !== 'en' && (translateState === 'translating' || (aiKey !== '' && untranslatedCount > 0)) && (
         <div style={styles.actionBar}>
           {translateState === 'translating' && translateProgress ? (
-            <span style={styles.actionBarNotice}>
-              🌐{' '}
-              {t('translate.translating', {
-                done: translateProgress.done,
-                total: translateProgress.total,
-              })}
-            </span>
+            <>
+              <span style={styles.actionBarNotice}>
+                🌐{' '}
+                {t('translate.translating', {
+                  done: translateProgress.done,
+                  total: translateProgress.total,
+                })}
+              </span>
+              {/* R44: Cancel button parity with popup R40 */}
+              {activeAbort && (
+                <button
+                  type="button"
+                  onClick={() => activeAbort.abort()}
+                  style={styles.cancelLinkButton}
+                >
+                  {t('common.cancel')}
+                </button>
+              )}
+            </>
           ) : (
             <button
               type="button"
@@ -827,6 +876,7 @@ export function Manage(): JSX.Element {
               itemData={{
                 stars: visible,
                 perRowState,
+                perRowAbort,
                 onDeepIndex: onPerRowDeepIndex,
                 canDeepIndex: aiKey !== '' && pat !== '',
                 columnsPerRow,
@@ -1102,6 +1152,10 @@ function FilterBar(props: {
 interface GridData {
   readonly stars: ReadonlyArray<StarredRepo>;
   readonly perRowState: ReadonlyMap<number, 'indexing'>;
+  // R44: per-row AbortController map. Each entry's `signal` is threaded
+  // into the matching indexRepoCode call so the row's Cancel button can
+  // kill JUST that row without affecting siblings.
+  readonly perRowAbort: ReadonlyMap<number, AbortController>;
   readonly onDeepIndex: (star: StarredRepo) => void;
   readonly canDeepIndex: boolean;
   readonly columnsPerRow: number;
@@ -1149,6 +1203,11 @@ function GridRow(props: {
           canDeepIndex={data.canDeepIndex}
           onDeepIndex={data.onDeepIndex}
           onEditNote={data.onEditNote}
+          onCancelDeepIndex={
+            data.perRowAbort.has(star.id)
+              ? () => data.perRowAbort.get(star.id)!.abort()
+              : undefined
+          }
         />
       </div>
     );
@@ -1164,6 +1223,11 @@ function GridRow(props: {
           canDeepIndex={data.canDeepIndex}
           onDeepIndex={data.onDeepIndex}
           onEditNote={data.onEditNote}
+          onCancelDeepIndex={
+            data.perRowAbort.has(star.id)
+              ? () => data.perRowAbort.get(star.id)!.abort()
+              : undefined
+          }
         />
       </div>
     );
@@ -1186,6 +1250,11 @@ function GridRow(props: {
           canDeepIndex={data.canDeepIndex}
           onDeepIndex={data.onDeepIndex}
           onEditNote={data.onEditNote}
+          onCancelDeepIndex={
+            data.perRowAbort.has(star.id)
+              ? () => data.perRowAbort.get(star.id)!.abort()
+              : undefined
+          }
         />
       ))}
     </div>
@@ -1203,8 +1272,11 @@ function ListRow(props: {
   readonly canDeepIndex: boolean;
   readonly onDeepIndex: (star: StarredRepo) => void;
   readonly onEditNote: (star: StarredRepo) => void;
+  // R44: optional per-row cancel — present only when indexing=true
+  // AND a controller exists in perRowAbort Map for this star.
+  readonly onCancelDeepIndex?: () => void;
 }): JSX.Element {
-  const { star, indexing, canDeepIndex, onDeepIndex, onEditNote } = props;
+  const { star, indexing, canDeepIndex, onDeepIndex, onEditNote, onCancelDeepIndex } = props;
   const { t, locale } = useI18n();
   const displayDesc =
     locale !== 'en' && star.descriptionI18n?.[locale]
@@ -1291,6 +1363,19 @@ function ListRow(props: {
             {indexing ? t('deepIndex.rowIndexing') : t('deepIndex.rowButton')}
           </button>
         )}
+        {/* R44: Cancel button sibling — only renders when deep-index
+         *  is in-flight AND a per-row controller exists. Mirrors
+         *  popup's R40 inline-Cancel design. */}
+        {indexing && onCancelDeepIndex && (
+          <button
+            type="button"
+            onClick={onCancelDeepIndex}
+            style={styles.cancelLinkButton}
+            title={t('common.cancel')}
+          >
+            {t('common.cancel')}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1307,8 +1392,9 @@ function CompactRow(props: {
   readonly canDeepIndex: boolean;
   readonly onDeepIndex: (star: StarredRepo) => void;
   readonly onEditNote: (star: StarredRepo) => void;
+  readonly onCancelDeepIndex?: () => void;
 }): JSX.Element {
-  const { star, indexing, canDeepIndex, onDeepIndex, onEditNote } = props;
+  const { star, indexing, canDeepIndex, onDeepIndex, onEditNote, onCancelDeepIndex } = props;
   const { t, locale } = useI18n();
   const displayDesc =
     locale !== 'en' && star.descriptionI18n?.[locale]
@@ -1386,8 +1472,9 @@ function Card(props: {
   readonly canDeepIndex: boolean;
   readonly onDeepIndex: (star: StarredRepo) => void;
   readonly onEditNote: (star: StarredRepo) => void;
+  readonly onCancelDeepIndex?: () => void;
 }): JSX.Element {
-  const { star, indexing, canDeepIndex, onDeepIndex, onEditNote } = props;
+  const { star, indexing, canDeepIndex, onDeepIndex, onEditNote, onCancelDeepIndex } = props;
   const { t, locale } = useI18n();
   const displayDesc =
     locale !== 'en' && star.descriptionI18n?.[locale]
@@ -1487,6 +1574,19 @@ function Card(props: {
             {indexing ? t('deepIndex.rowIndexing') : t('deepIndex.rowButton')}
           </button>
         )}
+        {/* R44: Cancel button sibling — only renders when deep-index
+         *  is in-flight AND a per-row controller exists. Mirrors
+         *  popup's R40 inline-Cancel design. */}
+        {indexing && onCancelDeepIndex && (
+          <button
+            type="button"
+            onClick={onCancelDeepIndex}
+            style={styles.cancelLinkButton}
+            title={t('common.cancel')}
+          >
+            {t('common.cancel')}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1547,6 +1647,19 @@ const styles = {
     color: 'rgb(67, 56, 202)',
     borderRadius: '6px',
     fontWeight: 500,
+  },
+  // R44: Cancel button next to manage progress notices + per-row.
+  // Mirrors popup R40 cancelLinkButton styling for visual continuity.
+  cancelLinkButton: {
+    fontSize: '11px',
+    padding: '2px 8px',
+    background: 'transparent',
+    color: 'rgb(153, 27, 27)',
+    border: '1px solid rgba(239, 68, 68, 0.3)',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontWeight: 500,
+    flexShrink: 0,
   },
   filterBar: {
     display: 'flex',
