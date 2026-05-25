@@ -92,6 +92,30 @@
     "syncPrompt": "點擊「同步」從 GitHub 拉取你的 star。",
     "summary": "{n} 個 star · 已索引 {indexed} 個"
   },
+  "error": {
+    "github": {
+      "auth": "GitHub 拒絕了權杖 — 請檢查 PAT 及其權限範圍。",
+      "rate_limit": "GitHub 速率限制已達上限,請稍後再試。",
+      "rate_limit_with_reset": "GitHub 速率限制已達上限,約 {mins} 分鐘後重試。",
+      "not_found": "端點未找到 (GitHub 可能已變更)。",
+      "validation": "GitHub 拒絕了請求格式。",
+      "network": "網路故障 — 請檢查你的連線。",
+      "timeout": "請求逾時。",
+      "server": "GitHub 回傳伺服器錯誤,請稍後再試。",
+      "parse": "無法解析 GitHub 回應。",
+      "unknown": "未知 GitHub 錯誤: {message}"
+    },
+    "ai": {
+      "auth": "AI 服務商拒絕了 API 金鑰 — 請檢查金鑰和服務商設定。",
+      "rate_limit": "AI 服務商速率限制已達上限,請稍後再試。",
+      "timeout": "AI 請求逾時,請重試或檢查網路。",
+      "network": "無法連線 AI 服務商 — 請檢查你的網路。",
+      "server": "AI 服務商回傳伺服器錯誤,請稍後再試。",
+      "bad_request": "AI 請求格式錯誤: {message}",
+      "parse": "AI 服務商回傳了非預期的回應格式。",
+      "unknown": "未知 AI 錯誤: {message}"
+    }
+  },
   "manage": {
     "title": "🌟 GitHub Star Kit · 管理",
     "loadingSubtitle": "正在載入你 star 的倉庫…",

@@ -34,7 +34,6 @@ import {
   createGithubClient,
   digestCosine,
   fetchRepoSource,
-  formatError,
   formatRelativeTime,
   indexRepoCode,
   computeInterestProfile,
@@ -50,6 +49,7 @@ import {
   KV_KEY_PAT,
 } from '../popup/db.js';
 import { AI_PRESETS, DEFAULT_AI_PRESET, type AiPresetId } from '../shared/ai-presets.js';
+import { localizeError } from '../shared/error-i18n.js';
 import { useI18n } from '../shared/i18n.js';
 
 type SortBy = 'starredAt' | 'pushedAt' | 'stargazersCount' | 'relevance';
@@ -208,7 +208,7 @@ export function Manage(): JSX.Element {
           setAiProvider(storedProvider as AiPresetId);
         }
       } catch (err) {
-        if (!cancelled) setError(formatError(err));
+        if (!cancelled) setError(localizeError(err, t));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -442,7 +442,7 @@ export function Manage(): JSX.Element {
         );
       }
     } catch (err) {
-      setError(formatError(err));
+      setError(localizeError(err, t));
     } finally {
       setTranslateState('idle');
     }
@@ -531,7 +531,7 @@ export function Manage(): JSX.Element {
         // synthesize from the stale closure. Caller's allStars will
         // reflect the un-star on next sync — no UI inconsistency.
       } catch (err) {
-        setError(formatError(err));
+        setError(localizeError(err, t));
       } finally {
         setPerRowState((m) => {
           const next = new Map(m);

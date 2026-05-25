@@ -119,5 +119,29 @@
     "metaFork": "fork",
     "deepIndexHint": "💡 Deep-index pulls the repo's source code, splits it into snippets, and embeds them so you can search code content (functions / variables / comments) from the popup search bar. Try queries like \"debounce function\" or \"prepare SQL\" after indexing — code snippets show up alongside repo matches.",
     "deepIndexDoneToast": "✓ Deep-indexed {repo} — try searching code (e.g. function names) in the popup."
+  },
+  "error": {
+    "github": {
+      "auth": "GitHub rejected the token — check the PAT and its scope.",
+      "rate_limit": "GitHub rate limit hit. Try again later.",
+      "rate_limit_with_reset": "GitHub rate limit hit. Try again in ~{mins} min.",
+      "not_found": "Endpoint not found (GitHub may have changed).",
+      "validation": "GitHub rejected the request shape.",
+      "network": "Network failure — check your connection.",
+      "timeout": "The request timed out.",
+      "server": "GitHub returned a server error. Try again in a moment.",
+      "parse": "Could not parse the GitHub response.",
+      "unknown": "Unknown GitHub failure: {message}"
+    },
+    "ai": {
+      "auth": "AI provider rejected the API key — check the key and provider settings.",
+      "rate_limit": "AI provider rate limit hit. Try again in a moment.",
+      "timeout": "AI request timed out. Try again or check your connection.",
+      "network": "Network failure reaching the AI provider — check your connection.",
+      "server": "AI provider returned a server error. Try again in a moment.",
+      "bad_request": "Malformed AI request: {message}",
+      "parse": "AI provider returned an unexpected response shape.",
+      "unknown": "Unknown AI failure: {message}"
+    }
   }
 }

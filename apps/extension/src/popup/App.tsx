@@ -24,7 +24,6 @@ import {
   createGithubClient,
   embedStars,
   fetchRepoSource,
-  formatError,
   formatRelativeTime,
   formatSyncSummary,
   generateDigest,
@@ -46,6 +45,7 @@ import {
 // the China-region presets the GFW reality demands.
 import { OpenAICompatibleProvider } from '@starkit/ai';
 import { MemoryVectorStore, type VectorSearchResult } from '@starkit/vector';
+import { localizeError } from '../shared/error-i18n.js';
 import { releaseSyncLock, tryAcquireSyncLock } from '../shared/lock.js';
 import {
   AI_PRESETS,
@@ -253,7 +253,7 @@ export function App(): JSX.Element {
         setAllStarsForTrCount(all);
         setDeepIndexedCount(all.filter((s) => s.deepIndexed).length);
       } catch (err) {
-        if (!cancelled) setError(formatError(err));
+        if (!cancelled) setError(localizeError(err, t));
       }
     })();
     return () => {
@@ -272,7 +272,7 @@ export function App(): JSX.Element {
       setPatDraft('');
       setError(null);
     } catch (err) {
-      setError(formatError(err));
+      setError(localizeError(err, t));
     }
   }, [patDraft]);
 
@@ -293,7 +293,7 @@ export function App(): JSX.Element {
       setAiKeyDraft('');
       setError(null);
     } catch (err) {
-      setError(formatError(err));
+      setError(localizeError(err, t));
     }
   }, [aiKeyDraft, aiProviderDraft]);
 
@@ -334,7 +334,7 @@ export function App(): JSX.Element {
       setDigest(null);
       setError(null);
     } catch (err) {
-      setError(formatError(err));
+      setError(localizeError(err, t));
     }
   }, []);
 
@@ -378,7 +378,7 @@ export function App(): JSX.Element {
       // Successful sync clears any prior rate-limit cooldown.
       setRateLimitResetAt(null);
     } catch (err) {
-      setError(formatError(err));
+      setError(localizeError(err, t));
       // R10 蓝军 fix #8: structured rate-limit handling. If GitHub returned
       // a 403/429 with a Retry-After / x-ratelimit-reset, persist the
       // deadline so the button stays disabled + the user sees a countdown
@@ -460,7 +460,7 @@ export function App(): JSX.Element {
         );
       }
     } catch (err) {
-      setError(formatError(err));
+      setError(localizeError(err, t));
     } finally {
       setEmbedState('idle');
     }
@@ -600,7 +600,7 @@ export function App(): JSX.Element {
       setAllStarsForTrCount(all);
       setTranslateProgress(null);
     } catch (err) {
-      setError(formatError(err));
+      setError(localizeError(err, t));
     } finally {
       setTranslateState('idle');
     }
@@ -669,7 +669,7 @@ export function App(): JSX.Element {
         );
       }
     } catch (err) {
-      setError(formatError(err));
+      setError(localizeError(err, t));
     } finally {
       setTagState('idle');
     }
@@ -802,7 +802,7 @@ export function App(): JSX.Element {
       // same reason embed/sync do (R10 蓝军 fix C1 pattern).
       setDigest(null);
     } catch (err) {
-      setError(formatError(err));
+      setError(localizeError(err, t));
     } finally {
       setDeepIndexState('idle');
     }
@@ -887,7 +887,7 @@ export function App(): JSX.Element {
         }
       }
     } catch (err) {
-      setError(formatError(err));
+      setError(localizeError(err, t));
     }
   }, [indexedCount, aiKey, aiProvider]);
 
@@ -967,7 +967,7 @@ export function App(): JSX.Element {
       );
       setSearchResults(rehydrated.filter((r): r is SearchHit => r !== null));
     } catch (err) {
-      setError(formatError(err));
+      setError(localizeError(err, t));
       setSearchResults([]);
     } finally {
       setSearchState('idle');
