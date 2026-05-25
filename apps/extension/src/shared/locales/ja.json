@@ -50,6 +50,11 @@
     "autoTagButtonOne": "{n} 件のリポジトリに自動タグ",
     "taggingProgress": "タグ付け中 {done}/{total}…"
   },
+  "translate": {
+    "button": "🌐 {n} 件を翻訳",
+    "translating": "翻訳中 {done}/{total}…",
+    "title": "{n} 件のリポジトリ説明を現在の UI 言語（{locale}）に翻訳します。AI プロバイダーのキーを使用 — 1000 件で約 ¥0.30。"
+  },
   "digest": {
     "button": "📰 ウィークリーダイジェスト",
     "headerSummary": "今週のダイジェスト — 候補 {total} 件中の上位 {shown} 件",

@@ -227,6 +227,104 @@ describe('translateStars — skip-cache + force re-translate', () => {
     expect(calls[0]!.locale).toBe('zh-CN');
   });
 
+  it('R21 蓝军 P0: tag-backfill — re-runs tag translation when desc cached but tags missing', async () => {
+    // The "翻译完了依旧有标签和介绍没有翻译" symptom: prior run got
+    // description but tags failed (provider noise). The next translate
+    // click USED TO skip the entire star (skip checked only desc),
+    // leaving tags permanently English unless user forceRetranslate.
+    // New contract: skip only when BOTH desc AND tags are cached for
+    // this locale; otherwise the worker enters and skips desc chat
+    // (already cached) and runs ONLY the tags chat.
+    const starStore = new StarStoreMemory();
+    await starStore.upsertMany([
+      makeStar({
+        id: 1,
+        description: 'Async runtime for Rust.',
+        aiTags: ['rust', 'async-runtime', 'concurrency'],
+        descriptionI18n: { 'zh-CN': '一个 Rust 异步运行时。' }, // desc cached
+        aiTagsI18n: {}, // tags NOT cached — backfill needed
+      }),
+    ]);
+    const { fn: updateStar, calls } = makeRecorder();
+    const chat = vi.fn(makeFakeChat((s) => `t:${s}`));
+    const result = await translateStars({
+      starStore,
+      chat,
+      updateStar,
+      targetLocale: 'zh-CN',
+    });
+    // Star is NOT skipped (skip only when both cached).
+    expect(result.skipped).toBe(0);
+    // Description path runs ZERO chat calls (descAlreadyCached short-circuit).
+    // Only tags chat fires.
+    expect(chat).toHaveBeenCalledTimes(1);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.field).toBe('tags');
+    expect(calls[0]!.locale).toBe('zh-CN');
+    // result.tagsTranslated reflects the new tag-only success path.
+    expect(result.tagsTranslated).toBe(1);
+    // result.translated reflects description count — desc was cached so
+    // no NEW description translation happened this run.
+    expect(result.translated).toBe(0);
+    // The starStore row is unchanged because makeRecorder is a no-op
+    // persistence stub — the orchestrator's updateStar call is what the
+    // popup wires to a real starStore.upsertMany. We verify via calls[].
+    const after = await starStore.get(1);
+    expect(after!.descriptionI18n!['zh-CN']).toBe('一个 Rust 异步运行时。');
+  });
+
+  it('R21 蓝军 P0: still skips when BOTH desc and tags are cached', async () => {
+    // Complement of above: when the full translation set is cached,
+    // the orchestrator must NOT enter the worker — zero chat calls,
+    // skipped counter increments.
+    const starStore = new StarStoreMemory();
+    await starStore.upsertMany([
+      makeStar({
+        id: 1,
+        description: 'Async runtime for Rust.',
+        aiTags: ['rust', 'async'],
+        descriptionI18n: { 'zh-CN': '一个 Rust 异步运行时。' },
+        aiTagsI18n: { 'zh-CN': 'rust, 异步' },
+      }),
+    ]);
+    const { fn: updateStar, calls } = makeRecorder();
+    const chat = vi.fn(makeFakeChat((s) => `t:${s}`));
+    const result = await translateStars({
+      starStore,
+      chat,
+      updateStar,
+      targetLocale: 'zh-CN',
+    });
+    expect(result.skipped).toBe(1);
+    expect(result.translated).toBe(0);
+    expect(chat).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
+  });
+
+  it('R21 蓝军 P0: star with no aiTags is fully cached when desc alone is cached', async () => {
+    // Edge case: a repo with empty aiTags doesn't need tag translation.
+    // "Tags done" for such a star = always true. Desc cached → full skip.
+    const starStore = new StarStoreMemory();
+    await starStore.upsertMany([
+      makeStar({
+        id: 1,
+        description: 'Foo bar baz.',
+        aiTags: [], // no tags — nothing to translate on the tag side
+        descriptionI18n: { 'zh-CN': '富吧巴兹。' },
+      }),
+    ]);
+    const { fn: updateStar } = makeRecorder();
+    const chat = vi.fn(makeFakeChat((s) => `t:${s}`));
+    const result = await translateStars({
+      starStore,
+      chat,
+      updateStar,
+      targetLocale: 'zh-CN',
+    });
+    expect(result.skipped).toBe(1);
+    expect(chat).not.toHaveBeenCalled();
+  });
+
   it('re-translates every star when forceRetranslate=true', async () => {
     const starStore = new StarStoreMemory();
     await starStore.upsertMany([

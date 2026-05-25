@@ -50,6 +50,11 @@
     "autoTagButtonOne": "Tự gắn tag {n} repo",
     "taggingProgress": "Đang gắn tag {done}/{total}…"
   },
+  "translate": {
+    "button": "🌐 Dịch {n}",
+    "translating": "Đang dịch {done}/{total}…",
+    "title": "Dịch {n} mô tả repo sang ngôn ngữ UI hiện tại ({locale}). Sử dụng khóa nhà cung cấp AI — ~¥0.30 cho 1000 repos."
+  },
   "digest": {
     "button": "📰 Tóm tắt tuần",
     "headerSummary": "Tóm tắt tuần — top {shown} trên {total} tuần này",

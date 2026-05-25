@@ -50,6 +50,11 @@
     "autoTagButtonOne": "自動標籤 {n} 個倉庫",
     "taggingProgress": "正在打標籤 {done}/{total}…"
   },
+  "translate": {
+    "button": "🌐 翻譯 {n} 個",
+    "translating": "正在翻譯 {done}/{total}…",
+    "title": "將 {n} 個倉庫描述翻譯為當前介面語言（{locale}）。使用你的 AI 服務商金鑰 — 1000 個倉庫約 ¥0.30。"
+  },
   "digest": {
     "button": "📰 每週精選",
     "headerSummary": "每週精選 — 本週共 {total} 個候選,展示前 {shown} 個",

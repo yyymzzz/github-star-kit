@@ -50,6 +50,11 @@
     "autoTagButtonOne": "{n} Repo automatisch taggen",
     "taggingProgress": "Tagge {done}/{total}…"
   },
+  "translate": {
+    "button": "🌐 {n} übersetzen",
+    "translating": "Übersetze {done}/{total}…",
+    "title": "Übersetzt {n} Repo-Beschreibungen in die aktuelle UI-Sprache ({locale}). Verwendet deinen AI-Provider-Key — ~¥0.30 für 1000 Repos."
+  },
   "digest": {
     "button": "📰 Wochenübersicht",
     "headerSummary": "Wochenübersicht — Top {shown} von {total} diese Woche",

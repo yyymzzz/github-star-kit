@@ -50,6 +50,11 @@
     "autoTagButtonOne": "{n}개 저장소 자동 태그",
     "taggingProgress": "태그 지정 중 {done}/{total}…"
   },
+  "translate": {
+    "button": "🌐 {n}개 번역",
+    "translating": "번역 중 {done}/{total}…",
+    "title": "{n}개 저장소 설명을 현재 UI 언어({locale})로 번역합니다. AI 제공자 키 사용 — 1000개 기준 약 ¥0.30."
+  },
   "digest": {
     "button": "📰 주간 다이제스트",
     "headerSummary": "주간 다이제스트 — 이번 주 후보 {total}개 중 상위 {shown}개",

@@ -50,6 +50,11 @@
     "autoTagButtonOne": "Tagger automatiquement {n} dépôt",
     "taggingProgress": "Tagging {done}/{total}…"
   },
+  "translate": {
+    "button": "🌐 Traduire {n}",
+    "translating": "Traduction {done}/{total}…",
+    "title": "Traduit {n} descriptions de dépôt vers la langue UI actuelle ({locale}). Utilise votre clé fournisseur AI — environ ¥0.30 pour 1000 dépôts."
+  },
   "digest": {
     "button": "📰 Résumé hebdo",
     "headerSummary": "Résumé hebdo — top {shown} sur {total} cette semaine",

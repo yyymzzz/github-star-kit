@@ -185,22 +185,43 @@ export async function translateStars(
   //   - noSource: description is null/empty/whitespace → can't translate
   //   - alreadyDone: already has translation for this locale (skip unless forced)
   //   - toTranslate: actually needs a chat call
+  //
+  // R21 蓝军 P0 fix: the skip condition was "desc translation cached →
+  // skip entire star", which left a permanent tag-backfill gap. If a
+  // prior run got desc but failed tags (provider noise, rate_limit),
+  // the next translate click would skip the whole star → tags NEVER
+  // get retried unless user clicks forceRetranslate (which re-burns
+  // the entire desc cost). New skip: desc cached AND (no aiTags OR
+  // aiTags translation cached too). Misses become tag-only re-runs
+  // — desc translation is still cached, only the missing tags fire.
   const noSource: StarredRepo[] = [];
   const toTranslate: StarredRepo[] = [];
+  const alsoTagsResolved = opts.alsoTags ?? true;
   let skipped = 0;
   for (const star of allStars) {
     if (!star.description || star.description.trim().length === 0) {
       noSource.push(star);
       continue;
     }
-    if (
-      !opts.forceRetranslate &&
-      star.descriptionI18n &&
-      typeof star.descriptionI18n[opts.targetLocale] === 'string' &&
-      star.descriptionI18n[opts.targetLocale]!.length > 0
-    ) {
-      skipped += 1;
-      continue;
+    if (!opts.forceRetranslate) {
+      const descCached =
+        star.descriptionI18n &&
+        typeof star.descriptionI18n[opts.targetLocale] === 'string' &&
+        star.descriptionI18n[opts.targetLocale]!.length > 0;
+      // Tags considered "done" if: alsoTags disabled (caller doesn't
+      // care), OR star has no aiTags (nothing to translate), OR the
+      // aiTagsI18n cache for this locale is populated. Empty/missing
+      // cache entry means "needs to be (re-)translated".
+      const tagsDone =
+        !alsoTagsResolved ||
+        star.aiTags.length === 0 ||
+        (star.aiTagsI18n &&
+          typeof star.aiTagsI18n[opts.targetLocale] === 'string' &&
+          star.aiTagsI18n[opts.targetLocale]!.length > 0);
+      if (descCached && tagsDone) {
+        skipped += 1;
+        continue;
+      }
     }
     toTranslate.push(star);
   }
@@ -282,12 +303,25 @@ export async function translateStars(
       if (!star) return;
 
       // ─── Description translation (with retry) ───────────────────────
+      // R21 蓝军 P0: when the description is ALREADY cached for this
+      // locale (i.e. star reached the worker because tags need backfill
+      // but desc was already done in a prior run), skip the desc chat
+      // entirely — set descOK=true so the tags arm fires. Without this,
+      // tag-backfill runs would re-burn the description token cost.
       let descOK = false;
-      try {
-        const r = await callChatWithRetry(
-          systemPrompt,
-          buildTranslateUserPrompt(star.description!)
-        );
+      const descAlreadyCached =
+        !opts.forceRetranslate &&
+        star.descriptionI18n &&
+        typeof star.descriptionI18n[opts.targetLocale] === 'string' &&
+        star.descriptionI18n[opts.targetLocale]!.length > 0;
+      if (descAlreadyCached) {
+        descOK = true;
+      } else {
+        try {
+          const r = await callChatWithRetry(
+            systemPrompt,
+            buildTranslateUserPrompt(star.description!)
+          );
         if (opts.signal?.aborted) return;
         const text = parseTranslateResponse(r.text);
         totalInputTokens += r.inputTokens;
@@ -316,22 +350,23 @@ export async function translateStars(
           failedStarIds.push(star.id);
           recordFailure(null, 'translator returned empty result (parser refused)');
         }
-      } catch (err) {
-        // R20 蓝军 MAJOR fix (post-audit B): AbortError only propagates
-        // when CALLER signal initiated the cancel. Bare AbortError from
-        // provider's internal withTimeout = exhausted-retry transient
-        // → counts as failed. Matches embed/tag/code/digest pattern.
-        // The v1 unguarded `throw err` was a latent bug — silently
-        // killed the run on any inner timeout even though callWithRetry
-        // already retried it 3x.
-        if (err instanceof Error && err.name === 'AbortError' && opts.signal?.aborted) {
-          throw err;
+        } catch (err) {
+          // R20 蓝军 MAJOR fix (post-audit B): AbortError only propagates
+          // when CALLER signal initiated the cancel. Bare AbortError from
+          // provider's internal withTimeout = exhausted-retry transient
+          // → counts as failed. Matches embed/tag/code/digest pattern.
+          // The v1 unguarded `throw err` was a latent bug — silently
+          // killed the run on any inner timeout even though callWithRetry
+          // already retried it 3x.
+          if (err instanceof Error && err.name === 'AbortError' && opts.signal?.aborted) {
+            throw err;
+          }
+          failed += 1;
+          failedStarIds.push(star.id);
+          // Strong signal — AIError with .kind, or generic Error. Always
+          // record. (AIError-vs-Error priority is inside recordFailure.)
+          recordFailure(err, 'unknown failure');
         }
-        failed += 1;
-        failedStarIds.push(star.id);
-        // Strong signal — AIError with .kind, or generic Error. Always
-        // record. (AIError-vs-Error priority is inside recordFailure.)
-        recordFailure(err, 'unknown failure');
       }
 
       // ─── Tags translation (best-effort, only when desc succeeded) ───

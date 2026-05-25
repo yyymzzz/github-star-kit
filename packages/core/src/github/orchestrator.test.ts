@@ -537,6 +537,74 @@ describe('syncStarsWithStore — local field preservation (R12 蓝军 regression
     expect(after!.lastSyncedAt).not.toBe(existing!.lastSyncedAt);
   });
 
+  // R21 蓝军 P0 — translation cache preservation regression. The user
+  // report "翻译完了依旧有标签和介绍没有翻译" reproduced because Phase 6
+  // added 4 i18n-cache fields (descriptionI18n / aiSummaryI18n /
+  // aiTagsI18n / lastTranslatedAt) but LOCAL_ONLY_FIELDS wasn't updated.
+  // Every sync silently reset the cache to schema defaults (`{}` / null)
+  // so users had to re-translate after every sync. This locks the contract.
+  it('preserves descriptionI18n / aiSummaryI18n / aiTagsI18n / lastTranslatedAt on re-sync (R21 蓝军 P0)', async () => {
+    const starStore = new StarStoreMemory();
+    const cursorStore = new CursorStoreMemory();
+    const client = createGithubClient({ token: TOKEN, retries: 0 });
+    const fm = installFetchMock();
+    // ISO timestamp scoped locally — the prior test's `T` is block-
+    // scoped and not visible here. Independent fixture per test.
+    const T = '2026-05-15T00:00:00Z';
+
+    nextJson(fm, [sampleStar(1, T)], { headers: { etag: '"e1"' } });
+    await syncStarsWithStore(client, { starStore, cursorStore });
+
+    // Simulate the translate pipeline decorating the row across multiple locales.
+    const existing = await starStore.get(1);
+    expect(existing).not.toBeNull();
+    const translatedAt = '2026-05-25T12:00:00Z';
+    await starStore.upsertMany([
+      {
+        ...existing!,
+        descriptionI18n: {
+          'zh-CN': 'Rust 异步运行时',
+          ja: 'Rust 非同期ランタイム',
+          de: 'Rust-Async-Laufzeit',
+        },
+        aiSummaryI18n: {
+          'zh-CN': '一个专注于低延迟调度的 Rust 异步运行时。',
+        },
+        aiTagsI18n: {
+          'zh-CN': '异步运行时, rust, 并发',
+          ja: '非同期ランタイム, rust, 並行',
+        },
+        lastTranslatedAt: translatedAt,
+      },
+    ]);
+
+    // Re-sync: GitHub returns the same star. Without the R21 fix, the
+    // 4 i18n fields would be reset to defaults ({} / null).
+    nextJson(fm, [sampleStar(1, T)], { headers: { etag: '"e2"' } });
+    await syncStarsWithStore(
+      client,
+      { starStore, cursorStore },
+      { forceFullSync: true }
+    );
+
+    const after = await starStore.get(1);
+    expect(after).not.toBeNull();
+    // All 4 i18n local-only fields MUST survive sync — that's the contract.
+    expect(after!.descriptionI18n).toEqual({
+      'zh-CN': 'Rust 异步运行时',
+      ja: 'Rust 非同期ランタイム',
+      de: 'Rust-Async-Laufzeit',
+    });
+    expect(after!.aiSummaryI18n).toEqual({
+      'zh-CN': '一个专注于低延迟调度的 Rust 异步运行时。',
+    });
+    expect(after!.aiTagsI18n).toEqual({
+      'zh-CN': '异步运行时, rust, 并发',
+      ja: '非同期ランタイム, rust, 並行',
+    });
+    expect(after!.lastTranslatedAt).toBe(translatedAt);
+  });
+
   it('cold sync (no existing row) writes GitHub data as-is — does not invent local fields', async () => {
     const starStore = new StarStoreMemory();
     const cursorStore = new CursorStoreMemory();

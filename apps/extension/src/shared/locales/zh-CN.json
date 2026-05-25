@@ -50,6 +50,11 @@
     "autoTagButtonOne": "自动标签 {n} 个仓库",
     "taggingProgress": "正在打标签 {done}/{total}…"
   },
+  "translate": {
+    "button": "🌐 翻译 {n} 个",
+    "translating": "正在翻译 {done}/{total}…",
+    "title": "将 {n} 个仓库描述翻译为当前界面语言（{locale}）。使用你的 AI 服务商密钥 — 1000 个仓库约 ¥0.30。"
+  },
   "digest": {
     "button": "📰 每周精选",
     "headerSummary": "每周精选 — 本周共 {total} 个候选,展示前 {shown} 个",

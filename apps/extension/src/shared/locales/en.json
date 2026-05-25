@@ -50,6 +50,11 @@
     "autoTagButtonOne": "Auto-tag {n} repo",
     "taggingProgress": "Tagging {done}/{total}…"
   },
+  "translate": {
+    "button": "🌐 Translate {n}",
+    "translating": "Translating {done}/{total}…",
+    "title": "Translate {n} descriptions into the current UI locale ({locale}). Uses your AI provider key — ~¥0.30 for 1000 repos."
+  },
   "digest": {
     "button": "📰 Weekly digest",
     "headerSummary": "Weekly digest — top {shown} of {total} this week",

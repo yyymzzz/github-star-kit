@@ -216,6 +216,20 @@ export async function syncStarsWithStore(
  * copying from the existing row when present. Kept as a string-literal tuple
  * so a future schema addition trips a typescript error here if we forget to
  * decide whether the new field is GitHub-owned or local-owned.
+ *
+ * R21 蓝军 P0 fix (demo gate finding): the i18n translation caches
+ * (`descriptionI18n`, `aiSummaryI18n`, `aiTagsI18n`, `lastTranslatedAt`)
+ * are local-only — GitHub doesn't know about them. They were added to the
+ * schema in Phase 6 but the LOCAL_ONLY_FIELDS list was never extended.
+ * Result: every `Sync` click reset all translation caches to the schema
+ * defaults (`{}` / null), so users had to re-translate after every sync.
+ * That's what made "翻译完了依旧有标签和介绍没有翻译" reproducible — the
+ * sync between translate clicks silently wiped the cache.
+ *
+ * Symmetric reasoning: if a user un-stars a repo and re-stars later,
+ * those translation caches DO get lost (because no `existing` row to
+ * overlay from). Same trade-off as aiTags / userNote — acceptable v1
+ * behavior; soft-delete + unstarredAt is a W6 candidate if users care.
  */
 const LOCAL_ONLY_FIELDS = [
   'aiTags',
@@ -224,6 +238,15 @@ const LOCAL_ONLY_FIELDS = [
   'lastEmbeddedAt',
   'subscribedToReleases',
   'deepIndexed',
+  // R21 蓝军 P0 — DO NOT REMOVE without weighing translate cost.
+  // Each entry below is a Record<locale, string> keyed by BCP-47 locale.
+  // Re-translate is expensive (one LLM chat call per star per locale),
+  // so preserving these across sync is a 10-100x cost reduction for
+  // users with the cron sync enabled.
+  'descriptionI18n',
+  'aiSummaryI18n',
+  'aiTagsI18n',
+  'lastTranslatedAt',
 ] as const satisfies ReadonlyArray<keyof StarredRepo>;
 
 /**

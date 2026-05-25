@@ -1101,7 +1101,11 @@ export function App(): JSX.Element {
        *  collapsed, so the in-flight pass stays visible. */}
       {translateState === 'translating' && translateProgress && (
         <div style={styles.notice}>
-          🌐 Translating {translateProgress.done}/{translateProgress.total}…
+          🌐{' '}
+          {t('translate.translating', {
+            done: translateProgress.done,
+            total: translateProgress.total,
+          })}
         </div>
       )}
 
@@ -1121,9 +1125,9 @@ export function App(): JSX.Element {
               type="button"
               onClick={() => void onTranslate()}
               style={{ ...styles.secondaryButton, flex: 1 }}
-              title={`Translate ${untranslatedCount} descriptions into the current UI locale (${locale}). Uses your AI provider key — ~¥0.30 for 1000 repos.`}
+              title={t('translate.title', { n: untranslatedCount, locale })}
             >
-              🌐 Translate {untranslatedCount}
+              {t('translate.button', { n: untranslatedCount })}
             </button>
           )}
           {indexedCount > 0 && !digest && (
@@ -1132,7 +1136,7 @@ export function App(): JSX.Element {
               onClick={() => void onShowDigest()}
               style={{ ...styles.secondaryButton, flex: 1 }}
             >
-              📰 Weekly digest
+              {t('digest.button')}
             </button>
           )}
           {knownCount > 0 && deepIndexState === 'idle' && (
@@ -1143,8 +1147,8 @@ export function App(): JSX.Element {
               title={`Fetch source from top-${DEEP_INDEX_TOP_N} unindexed starred repos and embed their code so it shows up in semantic search.`}
             >
               {deepIndexedCount === 0
-                ? `🔧 Deep-index top ${DEEP_INDEX_TOP_N}`
-                : `🔧 Deep-index +${DEEP_INDEX_TOP_N} more`}
+                ? t('deepIndex.button', { n: DEEP_INDEX_TOP_N })
+                : t('deepIndex.buttonMore', { n: DEEP_INDEX_TOP_N })}
             </button>
           )}
         </div>
@@ -1162,7 +1166,10 @@ export function App(): JSX.Element {
 
       {tagState === 'tagging' && tagProgress && (
         <div style={styles.notice}>
-          Tagging {tagProgress.done}/{tagProgress.total}…
+          {t('tag.taggingProgress', {
+            done: tagProgress.done,
+            total: tagProgress.total,
+          })}
         </div>
       )}
 
@@ -1189,10 +1196,12 @@ export function App(): JSX.Element {
         <>
           <div style={styles.digestHeader}>
             <span>
-              📰 Weekly digest — top {digest.entries.length} of{' '}
-              {digest.candidateCount} this week
+              {t('digest.headerSummary', {
+                shown: digest.entries.length,
+                total: digest.candidateCount,
+              })}
               {digest.unembeddedCount > 0
-                ? ` (+${digest.unembeddedCount} unranked, not yet embedded)`
+                ? ' ' + t('digest.unrankedSuffix', { n: digest.unembeddedCount })
                 : ''}
             </span>
             <button
@@ -1200,7 +1209,7 @@ export function App(): JSX.Element {
               onClick={onCloseDigest}
               style={styles.linkButton}
             >
-              ← Recent
+              {t('digest.backToRecent')}
             </button>
           </div>
           {digest.entries.length === 0 ? (
