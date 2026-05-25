@@ -99,6 +99,12 @@
     "hideArchived": "Cacher les archivés",
     "hideForks": "Cacher les forks",
     "noMatch": "Aucun favori ne correspond.",
-    "noMatchHelp": "Videz la recherche, mettez langue sur \"Tous\", ou décochez \"Cacher archivés/forks\"."
+    "noMatchHelp": "Videz la recherche, mettez langue sur \"Tous\", ou décochez \"Cacher archivés/forks\".",
+    "sortRelevance": "⭐ Plus pertinent",
+    "sortRelevanceNeedsIndex": " (créez d'abord l'index)",
+    "sortOrderTitle": "Actuellement {order} — cliquez pour inverser",
+    "tagsLabel": "Tags :",
+    "tagCountTitle": "{n} dépôts ont ce tag",
+    "tagsClear": "effacer ({n})"
   }
 }

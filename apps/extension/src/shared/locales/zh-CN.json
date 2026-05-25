@@ -99,6 +99,12 @@
     "hideArchived": "隐藏已归档",
     "hideForks": "隐藏 fork",
     "noMatch": "没有匹配的 star。",
-    "noMatchHelp": "试试清空搜索框、把语言切回\"全部\",或取消勾选\"隐藏已归档\"/\"隐藏 fork\"。"
+    "noMatchHelp": "试试清空搜索框、把语言切回\"全部\",或取消勾选\"隐藏已归档\"/\"隐藏 fork\"。",
+    "sortRelevance": "⭐ 最相关",
+    "sortRelevanceNeedsIndex": "（请先建立索引）",
+    "sortOrderTitle": "当前 {order} — 点击切换",
+    "tagsLabel": "标签:",
+    "tagCountTitle": "{n} 个 star 包含此标签",
+    "tagsClear": "清除 ({n})"
   }
 }

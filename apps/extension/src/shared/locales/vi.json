@@ -99,6 +99,12 @@
     "hideArchived": "Ẩn đã lưu trữ",
     "hideForks": "Ẩn fork",
     "noMatch": "Không có star phù hợp.",
-    "noMatchHelp": "Xóa ô tìm kiếm, đổi ngôn ngữ về \"Tất cả\", hoặc tắt \"Ẩn đã lưu trữ/fork\"."
+    "noMatchHelp": "Xóa ô tìm kiếm, đổi ngôn ngữ về \"Tất cả\", hoặc tắt \"Ẩn đã lưu trữ/fork\".",
+    "sortRelevance": "⭐ Liên quan nhất",
+    "sortRelevanceNeedsIndex": " (tạo index trước)",
+    "sortOrderTitle": "Hiện tại {order} — nhấp để đảo",
+    "tagsLabel": "Tags:",
+    "tagCountTitle": "{n} stars có tag này",
+    "tagsClear": "xóa ({n})"
   }
 }

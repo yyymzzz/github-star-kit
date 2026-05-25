@@ -99,6 +99,12 @@
     "hideArchived": "隱藏已封存",
     "hideForks": "隱藏 fork",
     "noMatch": "沒有符合的 star。",
-    "noMatchHelp": "試試清空搜尋框、把語言切回\"全部\",或取消勾選\"隱藏已封存\"/\"隱藏 fork\"。"
+    "noMatchHelp": "試試清空搜尋框、把語言切回\"全部\",或取消勾選\"隱藏已封存\"/\"隱藏 fork\"。",
+    "sortRelevance": "⭐ 最相關",
+    "sortRelevanceNeedsIndex": "（請先建立索引）",
+    "sortOrderTitle": "當前 {order} — 點擊切換",
+    "tagsLabel": "標籤:",
+    "tagCountTitle": "{n} 個 star 包含此標籤",
+    "tagsClear": "清除 ({n})"
   }
 }

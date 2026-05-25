@@ -99,6 +99,12 @@
     "hideArchived": "Ocultar arquivados",
     "hideForks": "Ocultar forks",
     "noMatch": "Nenhum star corresponde.",
-    "noMatchHelp": "Limpe a busca, mude linguagem para \"Todas\", ou desligue \"Ocultar arquivados/forks\"."
+    "noMatchHelp": "Limpe a busca, mude linguagem para \"Todas\", ou desligue \"Ocultar arquivados/forks\".",
+    "sortRelevance": "⭐ Mais relevante",
+    "sortRelevanceNeedsIndex": " (crie o índice primeiro)",
+    "sortOrderTitle": "Atualmente {order} — clique para inverter",
+    "tagsLabel": "Tags:",
+    "tagCountTitle": "{n} estrelas têm essa tag",
+    "tagsClear": "limpar ({n})"
   }
 }

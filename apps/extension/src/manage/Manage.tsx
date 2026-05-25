@@ -643,7 +643,8 @@ function FilterBar(props: {
             <option value="pushedAt">{t('manage.sortPushed')}</option>
             <option value="stargazersCount">{t('manage.sortStars')}</option>
             <option value="relevance" disabled={!props.hasProfile}>
-              ⭐ Most relevant{props.hasProfile ? '' : ' (build index first)'}
+              {t('manage.sortRelevance')}
+              {props.hasProfile ? '' : t('manage.sortRelevanceNeedsIndex')}
             </option>
           </select>
         </label>
@@ -654,7 +655,9 @@ function FilterBar(props: {
             props.onSortOrderChange(props.sortOrder === 'desc' ? 'asc' : 'desc')
           }
           style={styles.sortDirButton}
-          title={`Currently ${props.sortOrder.toUpperCase()} — click to flip`}
+          title={t('manage.sortOrderTitle', {
+            order: props.sortOrder.toUpperCase(),
+          })}
         >
           {props.sortOrder === 'desc' ? '↓' : '↑'}
         </button>
@@ -680,7 +683,7 @@ function FilterBar(props: {
 
       {props.tagFacets.length > 0 && (
         <div style={styles.tagFilterRow}>
-          <span style={styles.tagFilterLabel}>Tags:</span>
+          <span style={styles.tagFilterLabel}>{t('manage.tagsLabel')}</span>
           {props.tagFacets.map(([tag, count]) => {
             const active = props.filters.tags.has(tag);
             return (
@@ -689,7 +692,7 @@ function FilterBar(props: {
                 type="button"
                 onClick={() => props.onToggleTag(tag)}
                 style={active ? styles.tagChipActive : styles.tagChipInactive}
-                title={`${count} stars have this tag`}
+                title={t('manage.tagCountTitle', { n: count })}
               >
                 {tag} {active ? '✓' : `· ${count}`}
               </button>
@@ -701,7 +704,7 @@ function FilterBar(props: {
               onClick={() => props.onFilterChange('tags', new Set())}
               style={styles.tagClearButton}
             >
-              clear ({props.filters.tags.size})
+              {t('manage.tagsClear', { n: props.filters.tags.size })}
             </button>
           )}
         </div>

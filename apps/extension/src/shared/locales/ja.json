@@ -99,6 +99,12 @@
     "hideArchived": "アーカイブを非表示",
     "hideForks": "Fork を非表示",
     "noMatch": "条件に合うスターがありません。",
-    "noMatchHelp": "検索ボックスをクリア、言語を「すべて」に戻す、または「アーカイブ/Fork を非表示」をオフにしてみてください。"
+    "noMatchHelp": "検索ボックスをクリア、言語を「すべて」に戻す、または「アーカイブ/Fork を非表示」をオフにしてみてください。",
+    "sortRelevance": "⭐ 最も関連性が高い",
+    "sortRelevanceNeedsIndex": "（まずインデックスを構築）",
+    "sortOrderTitle": "現在 {order} — クリックで反転",
+    "tagsLabel": "タグ:",
+    "tagCountTitle": "{n} 件のスターがこのタグを持つ",
+    "tagsClear": "クリア ({n})"
   }
 }

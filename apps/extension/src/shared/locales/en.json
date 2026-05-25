@@ -99,6 +99,12 @@
     "hideArchived": "Hide archived",
     "hideForks": "Hide forks",
     "noMatch": "No stars match these filters.",
-    "noMatchHelp": "Try clearing the search box, switching language to \"All\", or toggling \"Hide archived\" / \"Hide forks\" off."
+    "noMatchHelp": "Try clearing the search box, switching language to \"All\", or toggling \"Hide archived\" / \"Hide forks\" off.",
+    "sortRelevance": "⭐ Most relevant",
+    "sortRelevanceNeedsIndex": " (build index first)",
+    "sortOrderTitle": "Currently {order} — click to flip",
+    "tagsLabel": "Tags:",
+    "tagCountTitle": "{n} stars have this tag",
+    "tagsClear": "clear ({n})"
   }
 }

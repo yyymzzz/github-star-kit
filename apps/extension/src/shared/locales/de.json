@@ -99,6 +99,12 @@
     "hideArchived": "Archivierte ausblenden",
     "hideForks": "Forks ausblenden",
     "noMatch": "Keine Stars entsprechen den Filtern.",
-    "noMatchHelp": "Suchfeld leeren, Sprache auf \"Alle\" setzen oder \"Archivierte/Forks ausblenden\" deaktivieren."
+    "noMatchHelp": "Suchfeld leeren, Sprache auf \"Alle\" setzen oder \"Archivierte/Forks ausblenden\" deaktivieren.",
+    "sortRelevance": "⭐ Am relevantesten",
+    "sortRelevanceNeedsIndex": " (zuerst Index erstellen)",
+    "sortOrderTitle": "Aktuell {order} — klicken zum Wechseln",
+    "tagsLabel": "Tags:",
+    "tagCountTitle": "{n} Stars haben diesen Tag",
+    "tagsClear": "leeren ({n})"
   }
 }
