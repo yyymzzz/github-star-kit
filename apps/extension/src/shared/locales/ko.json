@@ -38,7 +38,8 @@
   "search": {
     "placeholder": "스타한 저장소 검색… (의미 기반)",
     "go": "검색",
-    "buildFirst": "먼저 검색 인덱스를 만드세요."
+    "buildFirst": "먼저 검색 인덱스를 만드세요.",
+    "codeHintPlaceholder": "Search repos or code (functions/vars)… (semantic)"
   },
   "index": {
     "buildButton": "검색 인덱스 만들기 ({n}개)",
@@ -114,6 +115,8 @@
     "tagsClear": "지우기 ({n})",
     "needsKeys": "Configure GitHub PAT and AI Provider key in the popup before deep-indexing.",
     "metaArchived": "archived",
-    "metaFork": "fork"
+    "metaFork": "fork",
+    "deepIndexHint": "💡 Deep-index pulls the repo's source code, splits it into snippets, and embeds them so you can search code content (functions / variables / comments) from the popup search bar. Try queries like \"debounce function\" or \"prepare SQL\" after indexing — code snippets show up alongside repo matches.",
+    "deepIndexDoneToast": "✓ Deep-indexed {repo} — try searching code (e.g. function names) in the popup."
   }
 }

@@ -38,7 +38,8 @@
   "search": {
     "placeholder": "搜尋你的 star 倉庫… (語意搜尋)",
     "go": "搜尋",
-    "buildFirst": "請先建立搜尋索引。"
+    "buildFirst": "請先建立搜尋索引。",
+    "codeHintPlaceholder": "Search repos or code (functions/vars)… (semantic)"
   },
   "index": {
     "buildButton": "建立搜尋索引 ({n} 個 star)",
@@ -114,6 +115,8 @@
     "tagsClear": "清除 ({n})",
     "needsKeys": "Configure GitHub PAT and AI Provider key in the popup before deep-indexing.",
     "metaArchived": "archived",
-    "metaFork": "fork"
+    "metaFork": "fork",
+    "deepIndexHint": "💡 Deep-index pulls the repo's source code, splits it into snippets, and embeds them so you can search code content (functions / variables / comments) from the popup search bar. Try queries like \"debounce function\" or \"prepare SQL\" after indexing — code snippets show up alongside repo matches.",
+    "deepIndexDoneToast": "✓ Deep-indexed {repo} — try searching code (e.g. function names) in the popup."
   }
 }

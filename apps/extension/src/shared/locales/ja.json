@@ -38,7 +38,8 @@
   "search": {
     "placeholder": "スター済みリポジトリを検索…(セマンティック)",
     "go": "検索",
-    "buildFirst": "まず検索インデックスを作成してください。"
+    "buildFirst": "まず検索インデックスを作成してください。",
+    "codeHintPlaceholder": "Search repos or code (functions/vars)… (semantic)"
   },
   "index": {
     "buildButton": "検索インデックスを作成 ({n} 件)",
@@ -114,6 +115,8 @@
     "tagsClear": "クリア ({n})",
     "needsKeys": "Configure GitHub PAT and AI Provider key in the popup before deep-indexing.",
     "metaArchived": "archived",
-    "metaFork": "fork"
+    "metaFork": "fork",
+    "deepIndexHint": "💡 Deep-index pulls the repo's source code, splits it into snippets, and embeds them so you can search code content (functions / variables / comments) from the popup search bar. Try queries like \"debounce function\" or \"prepare SQL\" after indexing — code snippets show up alongside repo matches.",
+    "deepIndexDoneToast": "✓ Deep-indexed {repo} — try searching code (e.g. function names) in the popup."
   }
 }

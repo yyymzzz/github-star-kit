@@ -38,7 +38,8 @@
   "search": {
     "placeholder": "搜索你的 star 仓库… (语义搜索)",
     "go": "搜索",
-    "buildFirst": "请先建立搜索索引。"
+    "buildFirst": "请先建立搜索索引。",
+    "codeHintPlaceholder": "搜索仓库或代码 (函数名/变量)… (语义搜索)"
   },
   "index": {
     "buildButton": "建立搜索索引 ({n} 个 star)",
@@ -114,6 +115,8 @@
     "tagsClear": "清除 ({n})",
     "needsKeys": "深度索引前请在 popup 中配置 GitHub PAT 和 AI 服务商密钥。",
     "metaArchived": "已归档",
-    "metaFork": "fork"
+    "metaFork": "fork",
+    "deepIndexHint": "💡 深度索引会拉取仓库源码,切成代码片段并嵌入向量库,这样你可以在 popup 搜索框直接搜代码内容(函数 / 变量 / 注释)。索引完成后试试搜 \"debounce 函数\"、\"prepare SQL\" 这类查询 — 代码片段会和仓库匹配一起出现在搜索结果里。",
+    "deepIndexDoneToast": "✓ 已深度索引 {repo} — 现在可以在 popup 搜索框搜代码内容(如函数名)。"
   }
 }

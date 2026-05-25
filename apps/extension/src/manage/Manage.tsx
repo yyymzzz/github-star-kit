@@ -105,6 +105,10 @@ export function Manage(): JSX.Element {
   >(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  // R27 UX: success toast for deep-index completion. Tells the user
+  // "now go to popup to search code" after a per-row deep-index finishes.
+  // Auto-clears after 6s to not nag.
+  const [successToast, setSuccessToast] = useState<string | null>(null);
 
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [sortBy, setSortBy] = useState<SortBy>('starredAt');
@@ -494,6 +498,14 @@ export function Manage(): JSX.Element {
           setAllStars((prev) =>
             prev.map((s) => (s.id === star.id ? { ...s, deepIndexed: true } : s))
           );
+          // R27 UX: positive feedback — tells the user where to use the
+          // index. Without this, users see "已深度索引" badge and assume
+          // they need to do something else, when actually they should
+          // open the popup search bar. Auto-clear after 6s.
+          setSuccessToast(
+            t('manage.deepIndexDoneToast', { repo: fresh.fullName })
+          );
+          setTimeout(() => setSuccessToast(null), 6000);
         }
         // else: star vanished (user un-starred during the run); do not
         // synthesize from the stale closure. Caller's allStars will
@@ -508,7 +520,7 @@ export function Manage(): JSX.Element {
         });
       }
     },
-    [aiKey, aiProvider, pat, perRowState]
+    [aiKey, aiProvider, pat, perRowState, t]
   );
 
   // ─── Render ───────────────────────────────────────────────────────────
@@ -537,6 +549,25 @@ export function Manage(): JSX.Element {
         <div role="alert" style={styles.errorBanner}>
           ⚠ {error}
         </div>
+      )}
+
+      {/* R27 UX: deep-index success toast. Self-clearing 6s timer set
+       *  inside onPerRowDeepIndex. Doesn't block other UI — sits above
+       *  the filter bar so the user notices it after a long index run. */}
+      {successToast && (
+        <div role="status" style={styles.successToast}>
+          {successToast}
+        </div>
+      )}
+
+      {/* R27 UX: Deep-index hint banner. Renders only when the user has
+       *  configured PAT + AI key (so the per-row button is actionable)
+       *  AND has at least one not-yet-deep-indexed candidate. Hidden
+       *  once everything is indexed (no need to keep nagging). Addresses
+       *  the "什么是深度索引/等了很久没变化" cognition gap — tells the
+       *  user WHY they'd click + WHERE the output lands (popup search). */}
+      {aiKey !== '' && pat !== '' && allStars.some((s) => !s.deepIndexed) && (
+        <div style={styles.deepIndexHint}>{t('manage.deepIndexHint')}</div>
       )}
 
       {/* Translate progress + button row (R5 v0.3). Renders only when
@@ -1062,6 +1093,31 @@ const styles = {
     background: 'rgba(127, 127, 127, 0.07)',
     borderRadius: '8px',
     textAlign: 'center' as const,
+  },
+  // R27: subtle info hint above the filter bar — explains what deep-
+  // index does + where to use it. Distinct from errorBanner (warning
+  // red) — uses friendly blue tone so users learn rather than worry.
+  deepIndexHint: {
+    padding: '10px 14px',
+    background: 'rgba(99, 102, 241, 0.08)',
+    border: '1px solid rgba(99, 102, 241, 0.22)',
+    borderRadius: '8px',
+    fontSize: '12px',
+    lineHeight: 1.55,
+    color: 'inherit',
+    opacity: 0.92,
+  },
+  // R27: success toast on deep-index completion. Green/positive tone
+  // to distinguish from errorBanner (red). Self-clears after 6s via
+  // setTimeout in onPerRowDeepIndex.
+  successToast: {
+    padding: '10px 14px',
+    background: 'rgba(34, 197, 94, 0.10)',
+    border: '1px solid rgba(34, 197, 94, 0.30)',
+    color: 'rgb(22, 101, 52)',
+    borderRadius: '8px',
+    fontSize: '13px',
+    fontWeight: 500,
   },
   helpText: {
     fontSize: '12px',

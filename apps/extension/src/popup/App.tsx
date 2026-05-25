@@ -1066,7 +1066,11 @@ export function App(): JSX.Element {
         <div style={styles.searchRow}>
           <input
             type="search"
-            placeholder={t('search.placeholder')}
+            placeholder={
+              deepIndexedCount > 0
+                ? t('search.codeHintPlaceholder')
+                : t('search.placeholder')
+            }
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {

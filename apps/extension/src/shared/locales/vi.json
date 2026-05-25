@@ -38,7 +38,8 @@
   "search": {
     "placeholder": "Tìm trong stars… (ngữ nghĩa)",
     "go": "OK",
-    "buildFirst": "Hãy tạo chỉ mục tìm kiếm trước."
+    "buildFirst": "Hãy tạo chỉ mục tìm kiếm trước.",
+    "codeHintPlaceholder": "Search repos or code (functions/vars)… (semantic)"
   },
   "index": {
     "buildButton": "Tạo chỉ mục ({n} stars)",
@@ -114,6 +115,8 @@
     "tagsClear": "xóa ({n})",
     "needsKeys": "Configure GitHub PAT and AI Provider key in the popup before deep-indexing.",
     "metaArchived": "archived",
-    "metaFork": "fork"
+    "metaFork": "fork",
+    "deepIndexHint": "💡 Deep-index pulls the repo's source code, splits it into snippets, and embeds them so you can search code content (functions / variables / comments) from the popup search bar. Try queries like \"debounce function\" or \"prepare SQL\" after indexing — code snippets show up alongside repo matches.",
+    "deepIndexDoneToast": "✓ Deep-indexed {repo} — try searching code (e.g. function names) in the popup."
   }
 }
