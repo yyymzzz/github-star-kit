@@ -13,7 +13,8 @@
   "sync": {
     "button": "同步",
     "syncing": "同步中…",
-    "waitMin": "等待 {n} 分鐘"
+    "waitMin": "等待 {n} 分鐘",
+    "conflict": "Another sync is running in the background. Try again in a moment."
   },
   "settings": {
     "pat": {
@@ -43,17 +44,21 @@
     "buildButton": "建立搜尋索引 ({n} 個 star)",
     "updateButton": "更新搜尋索引 ({n} 個新增)",
     "embeddingProgress": "正在生成嵌入 {done}/{total}",
-    "percentIndexed": "已索引 {pct}%"
+    "percentIndexed": "已索引 {pct}%",
+    "partialFailure": "Index built with {failed} failed batches ({embedded} embedded, {skipped} skipped){reason}. Click again to retry — already-embedded rows skip via contentHash."
   },
   "tag": {
     "autoTagButton": "自動標籤 {n} 個倉庫",
     "autoTagButtonOne": "自動標籤 {n} 個倉庫",
-    "taggingProgress": "正在打標籤 {done}/{total}…"
+    "taggingProgress": "正在打標籤 {done}/{total}…",
+    "partialFailure": "Auto-tag finished with {failed} failed ({tagged} tagged){reason}. Click again to retry only the untagged."
   },
   "translate": {
     "button": "🌐 翻譯 {n} 個",
     "translating": "正在翻譯 {done}/{total}…",
-    "title": "將 {n} 個倉庫描述翻譯為當前介面語言（{locale}）。使用你的 AI 服務商金鑰 — 1000 個倉庫約 ¥0.30。"
+    "title": "將 {n} 個倉庫描述翻譯為當前介面語言（{locale}）。使用你的 AI 服務商金鑰 — 1000 個倉庫約 ¥0.30。",
+    "englishGuard": "Switch UI language first (English originals need no translation).",
+    "partialFailure": "{failed} repos couldn't be translated ({names}{more}){reason}. Click Translate again to retry just those — already-done ones will skip."
   },
   "digest": {
     "button": "📰 每週精選",
@@ -77,7 +82,8 @@
     "rowDone": "🔧 已深度索引",
     "rowTitleEnabled": "拉取原始碼並嵌入程式碼片段,讓該倉庫出現在程式碼搜尋中",
     "rowTitleDisabled": "請先在 popup 中配置 PAT 和 AI 金鑰。",
-    "rowTitleInProgress": "進行中…"
+    "rowTitleInProgress": "進行中…",
+    "zeroChunks": "Deep-index produced 0 chunks for {fullName} ({failed}/{chunks} failed){reason}. Repo not marked complete — click Deep-index again to retry."
   },
   "stars": {
     "noStarsCached": "尚無快取的 star。",
@@ -105,6 +111,9 @@
     "sortOrderTitle": "當前 {order} — 點擊切換",
     "tagsLabel": "標籤:",
     "tagCountTitle": "{n} 個 star 包含此標籤",
-    "tagsClear": "清除 ({n})"
+    "tagsClear": "清除 ({n})",
+    "needsKeys": "Configure GitHub PAT and AI Provider key in the popup before deep-indexing.",
+    "metaArchived": "archived",
+    "metaFork": "fork"
   }
 }

@@ -346,7 +346,7 @@ export function App(): JSX.Element {
 
     const lockAcquired = await tryAcquireSyncLock(POPUP_OWNER_ID);
     if (!lockAcquired) {
-      setError('Another sync is running in the background. Try again in a moment.');
+      setError(t('sync.conflict'));
       setSyncState('idle');
       return;
     }
@@ -451,7 +451,12 @@ export function App(): JSX.Element {
           ? `: ${embedResult.lastErrorMessage}`
           : '';
         setError(
-          `Index built with ${embedResult.failed} failed batches (${embedResult.embedded} embedded, ${embedResult.skipped} skipped)${reason}. Click again to retry — already-embedded rows skip via contentHash.`
+          t('index.partialFailure', {
+            failed: embedResult.failed,
+            embedded: embedResult.embedded,
+            skipped: embedResult.skipped,
+            reason,
+          })
         );
       }
     } catch (err) {
@@ -483,7 +488,7 @@ export function App(): JSX.Element {
     if (!aiKey || !aiProvider || translateState === 'translating') return;
     if (locale === 'en') {
       // Defensive guard — the button shouldn't even render in this case.
-      setError('Switch UI language first (English originals need no translation).');
+      setError(t('translate.englishGuard'));
       return;
     }
     setTranslateState('translating');
@@ -577,7 +582,12 @@ export function App(): JSX.Element {
           ? `: ${translateResult.lastErrorMessage}`
           : '';
         setError(
-          `${translateResult.failed} repos couldn't be translated (${failedNames}${more})${reason}. Click Translate again to retry just those — already-done ones will skip.`
+          t('translate.partialFailure', {
+            failed: translateResult.failed,
+            names: failedNames,
+            more,
+            reason,
+          })
         );
       }
 
@@ -651,7 +661,11 @@ export function App(): JSX.Element {
           ? `: ${tagResult.lastErrorMessage}`
           : '';
         setError(
-          `Auto-tag finished with ${tagResult.failed} failed (${tagResult.tagged} tagged)${reason}. Click again to retry only the unstagged.`
+          t('tag.partialFailure', {
+            failed: tagResult.failed,
+            tagged: tagResult.tagged,
+            reason,
+          })
         );
       }
     } catch (err) {
@@ -679,9 +693,7 @@ export function App(): JSX.Element {
         .slice(0, DEEP_INDEX_TOP_N);
 
       if (candidates.length === 0) {
-        setError(
-          `No new repos to deep-index (already covered top ${DEEP_INDEX_TOP_N} by stars).`
-        );
+        setError(t('deepIndex.noNewRepos', { n: DEEP_INDEX_TOP_N }));
         return;
       }
 
@@ -767,7 +779,12 @@ export function App(): JSX.Element {
               ? ': no source files matched the language whitelist'
               : '';
           throw new Error(
-            `Deep-index produced 0 chunks for ${star.fullName} (${result.failed}/${result.chunks} failed)${reason}. Repo not marked complete — click Deep-index again to retry.`
+            t('deepIndex.zeroChunks', {
+              fullName: star.fullName,
+              failed: result.failed,
+              chunks: result.chunks,
+              reason,
+            })
           );
         }
       }
@@ -794,7 +811,7 @@ export function App(): JSX.Element {
   // ─── Weekly Digest: rank recently-pushed by relevance to user profile ──
   const onShowDigest = useCallback(async () => {
     if (indexedCount === 0) {
-      setError('Build the search index first to enable the weekly digest.');
+      setError(t('search.buildFirst'));
       return;
     }
     setError(null);
@@ -889,7 +906,7 @@ export function App(): JSX.Element {
       return;
     }
     if (!memVecRef.current || indexedCount === 0) {
-      setError('Build the search index first.');
+      setError(t('search.buildFirst'));
       return;
     }
     setSearchState('searching');

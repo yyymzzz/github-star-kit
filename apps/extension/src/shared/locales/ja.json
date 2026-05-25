@@ -13,7 +13,8 @@
   "sync": {
     "button": "同期",
     "syncing": "同期中…",
-    "waitMin": "{n} 分待機"
+    "waitMin": "{n} 分待機",
+    "conflict": "Another sync is running in the background. Try again in a moment."
   },
   "settings": {
     "pat": {
@@ -43,17 +44,21 @@
     "buildButton": "検索インデックスを作成 ({n} 件)",
     "updateButton": "検索インデックスを更新 ({n} 件追加)",
     "embeddingProgress": "埋め込み生成中 {done}/{total}",
-    "percentIndexed": "{pct}% インデックス済"
+    "percentIndexed": "{pct}% インデックス済",
+    "partialFailure": "Index built with {failed} failed batches ({embedded} embedded, {skipped} skipped){reason}. Click again to retry — already-embedded rows skip via contentHash."
   },
   "tag": {
     "autoTagButton": "{n} 件のリポジトリに自動タグ",
     "autoTagButtonOne": "{n} 件のリポジトリに自動タグ",
-    "taggingProgress": "タグ付け中 {done}/{total}…"
+    "taggingProgress": "タグ付け中 {done}/{total}…",
+    "partialFailure": "Auto-tag finished with {failed} failed ({tagged} tagged){reason}. Click again to retry only the untagged."
   },
   "translate": {
     "button": "🌐 {n} 件を翻訳",
     "translating": "翻訳中 {done}/{total}…",
-    "title": "{n} 件のリポジトリ説明を現在の UI 言語（{locale}）に翻訳します。AI プロバイダーのキーを使用 — 1000 件で約 ¥0.30。"
+    "title": "{n} 件のリポジトリ説明を現在の UI 言語（{locale}）に翻訳します。AI プロバイダーのキーを使用 — 1000 件で約 ¥0.30。",
+    "englishGuard": "Switch UI language first (English originals need no translation).",
+    "partialFailure": "{failed} repos couldn't be translated ({names}{more}){reason}. Click Translate again to retry just those — already-done ones will skip."
   },
   "digest": {
     "button": "📰 ウィークリーダイジェスト",
@@ -77,7 +82,8 @@
     "rowDone": "🔧 インデックス済",
     "rowTitleEnabled": "ソースを取得しコード片を埋め込み、このリポジトリがコード検索に出るようにします",
     "rowTitleDisabled": "先に popup で PAT と AI キーを設定してください。",
-    "rowTitleInProgress": "実行中…"
+    "rowTitleInProgress": "実行中…",
+    "zeroChunks": "Deep-index produced 0 chunks for {fullName} ({failed}/{chunks} failed){reason}. Repo not marked complete — click Deep-index again to retry."
   },
   "stars": {
     "noStarsCached": "まだスターがキャッシュされていません。",
@@ -105,6 +111,9 @@
     "sortOrderTitle": "現在 {order} — クリックで反転",
     "tagsLabel": "タグ:",
     "tagCountTitle": "{n} 件のスターがこのタグを持つ",
-    "tagsClear": "クリア ({n})"
+    "tagsClear": "クリア ({n})",
+    "needsKeys": "Configure GitHub PAT and AI Provider key in the popup before deep-indexing.",
+    "metaArchived": "archived",
+    "metaFork": "fork"
   }
 }

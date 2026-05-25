@@ -13,7 +13,8 @@
   "sync": {
     "button": "同步",
     "syncing": "同步中…",
-    "waitMin": "等待 {n} 分钟"
+    "waitMin": "等待 {n} 分钟",
+    "conflict": "另一个同步正在后台运行,请稍后再试。"
   },
   "settings": {
     "pat": {
@@ -43,17 +44,21 @@
     "buildButton": "建立搜索索引 ({n} 个 star)",
     "updateButton": "更新搜索索引 ({n} 个新增)",
     "embeddingProgress": "正在生成嵌入 {done}/{total}",
-    "percentIndexed": "已索引 {pct}%"
+    "percentIndexed": "已索引 {pct}%",
+    "partialFailure": "索引已建立,{failed} 个批次失败 ({embedded} 已嵌入, {skipped} 已跳过){reason}。再次点击重试 — 已嵌入的行会通过 contentHash 跳过。"
   },
   "tag": {
     "autoTagButton": "自动标签 {n} 个仓库",
     "autoTagButtonOne": "自动标签 {n} 个仓库",
-    "taggingProgress": "正在打标签 {done}/{total}…"
+    "taggingProgress": "正在打标签 {done}/{total}…",
+    "partialFailure": "自动标签完成,{failed} 个失败 ({tagged} 已打标签){reason}。再次点击仅重试未标签的。"
   },
   "translate": {
     "button": "🌐 翻译 {n} 个",
     "translating": "正在翻译 {done}/{total}…",
-    "title": "将 {n} 个仓库描述翻译为当前界面语言（{locale}）。使用你的 AI 服务商密钥 — 1000 个仓库约 ¥0.30。"
+    "title": "将 {n} 个仓库描述翻译为当前界面语言（{locale}）。使用你的 AI 服务商密钥 — 1000 个仓库约 ¥0.30。",
+    "englishGuard": "请先切换界面语言（英文原文无需翻译）。",
+    "partialFailure": "{failed} 个仓库无法翻译 ({names}{more}){reason}。再次点击翻译重试这些 — 已完成的会跳过。"
   },
   "digest": {
     "button": "📰 每周精选",
@@ -77,7 +82,8 @@
     "rowDone": "🔧 已深度索引",
     "rowTitleEnabled": "拉取源码并嵌入代码片段,让该仓库出现在代码搜索中",
     "rowTitleDisabled": "请先在 popup 中配置 PAT 和 AI 密钥。",
-    "rowTitleInProgress": "进行中…"
+    "rowTitleInProgress": "进行中…",
+    "zeroChunks": "{fullName} 深度索引产生 0 个分块 ({failed}/{chunks} 失败){reason}。仓库未标记完成 — 再次点击深度索引重试。"
   },
   "stars": {
     "noStarsCached": "尚无缓存的 star。",
@@ -105,6 +111,9 @@
     "sortOrderTitle": "当前 {order} — 点击切换",
     "tagsLabel": "标签:",
     "tagCountTitle": "{n} 个 star 包含此标签",
-    "tagsClear": "清除 ({n})"
+    "tagsClear": "清除 ({n})",
+    "needsKeys": "深度索引前请在 popup 中配置 GitHub PAT 和 AI 服务商密钥。",
+    "metaArchived": "已归档",
+    "metaFork": "fork"
   }
 }

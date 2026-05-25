@@ -321,9 +321,7 @@ export function Manage(): JSX.Element {
   const onTranslate = useCallback(async () => {
     if (!aiKey || translateState === 'translating') return;
     if (locale === 'en') {
-      setError(
-        'Switch UI language first (English originals need no translation).'
-      );
+      setError(t('translate.englishGuard'));
       return;
     }
     setTranslateState('translating');
@@ -417,7 +415,12 @@ export function Manage(): JSX.Element {
           ? `: ${translateResult.lastErrorMessage}`
           : '';
         setError(
-          `${translateResult.failed} repos couldn't be translated (${failedNames}${more})${reason}. Click Translate again to retry just those — already-done ones will skip.`
+          t('translate.partialFailure', {
+            failed: translateResult.failed,
+            names: failedNames,
+            more,
+            reason,
+          })
         );
       }
     } catch (err) {
@@ -430,9 +433,7 @@ export function Manage(): JSX.Element {
   const onPerRowDeepIndex = useCallback(
     async (star: StarredRepo) => {
       if (!aiKey || !pat) {
-        setError(
-          'Configure GitHub PAT and AI Provider key in the popup before deep-indexing.'
-        );
+        setError(t('manage.needsKeys'));
         return;
       }
       if (perRowState.has(star.id)) return; // Already in flight
@@ -872,8 +873,8 @@ function Card(props: {
         <span style={styles.rowMeta}>
           {formatRelativeTime(star.starredAt)}
           {star.pushedAt && ` · ${formatRelativeTime(star.pushedAt)}`}
-          {star.archived && ' · archived'}
-          {star.isFork && ' · fork'}
+          {star.archived && ` · ${t('manage.metaArchived')}`}
+          {star.isFork && ` · ${t('manage.metaFork')}`}
         </span>
         {star.deepIndexed ? (
           <span style={styles.deepIndexedBadge}>{t('deepIndex.rowDone')}</span>

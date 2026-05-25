@@ -13,7 +13,8 @@
   "sync": {
     "button": "Sync",
     "syncing": "Synchronisiere…",
-    "waitMin": "Warte {n} Min"
+    "waitMin": "Warte {n} Min",
+    "conflict": "Another sync is running in the background. Try again in a moment."
   },
   "settings": {
     "pat": {
@@ -43,17 +44,21 @@
     "buildButton": "Suchindex erstellen ({n} Stars)",
     "updateButton": "Suchindex aktualisieren ({n} neue)",
     "embeddingProgress": "Embedding {done}/{total}",
-    "percentIndexed": "{pct}% indiziert"
+    "percentIndexed": "{pct}% indiziert",
+    "partialFailure": "Index built with {failed} failed batches ({embedded} embedded, {skipped} skipped){reason}. Click again to retry — already-embedded rows skip via contentHash."
   },
   "tag": {
     "autoTagButton": "{n} Repos automatisch taggen",
     "autoTagButtonOne": "{n} Repo automatisch taggen",
-    "taggingProgress": "Tagge {done}/{total}…"
+    "taggingProgress": "Tagge {done}/{total}…",
+    "partialFailure": "Auto-tag finished with {failed} failed ({tagged} tagged){reason}. Click again to retry only the untagged."
   },
   "translate": {
     "button": "🌐 {n} übersetzen",
     "translating": "Übersetze {done}/{total}…",
-    "title": "Übersetzt {n} Repo-Beschreibungen in die aktuelle UI-Sprache ({locale}). Verwendet deinen AI-Provider-Key — ~¥0.30 für 1000 Repos."
+    "title": "Übersetzt {n} Repo-Beschreibungen in die aktuelle UI-Sprache ({locale}). Verwendet deinen AI-Provider-Key — ~¥0.30 für 1000 Repos.",
+    "englishGuard": "Switch UI language first (English originals need no translation).",
+    "partialFailure": "{failed} repos couldn't be translated ({names}{more}){reason}. Click Translate again to retry just those — already-done ones will skip."
   },
   "digest": {
     "button": "📰 Wochenübersicht",
@@ -77,7 +82,8 @@
     "rowDone": "🔧 tief-indiziert",
     "rowTitleEnabled": "Quellcode abrufen und Code-Chunks einbetten, damit dieses Repo in der Code-Suche erscheint",
     "rowTitleDisabled": "Zuerst PAT + AI-Key im Popup konfigurieren.",
-    "rowTitleInProgress": "Läuft…"
+    "rowTitleInProgress": "Läuft…",
+    "zeroChunks": "Deep-index produced 0 chunks for {fullName} ({failed}/{chunks} failed){reason}. Repo not marked complete — click Deep-index again to retry."
   },
   "stars": {
     "noStarsCached": "Noch keine Stars im Cache.",
@@ -105,6 +111,9 @@
     "sortOrderTitle": "Aktuell {order} — klicken zum Wechseln",
     "tagsLabel": "Tags:",
     "tagCountTitle": "{n} Stars haben diesen Tag",
-    "tagsClear": "leeren ({n})"
+    "tagsClear": "leeren ({n})",
+    "needsKeys": "Configure GitHub PAT and AI Provider key in the popup before deep-indexing.",
+    "metaArchived": "archived",
+    "metaFork": "fork"
   }
 }
