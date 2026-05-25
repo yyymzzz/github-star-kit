@@ -1527,7 +1527,8 @@ function CodeSnippet(props: { readonly hit: CodeHit }): JSX.Element {
         </span>
       </div>
       <div style={styles.repoMeta}>
-        {hit.path} · L{hit.startLine}-{hit.endLine}
+        {hit.path} ·{' '}
+        {t('code.lineRange', { start: hit.startLine, end: hit.endLine })}
         {hit.headerLine ? ` · ${truncate(hit.headerLine, 60)}` : ''}
       </div>
       {hit.snippet && (

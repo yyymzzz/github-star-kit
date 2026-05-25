@@ -71,7 +71,8 @@
   },
   "code": {
     "badge": "程式碼",
-    "viewOnGitHub": "在 GitHub 上檢視 →"
+    "viewOnGitHub": "在 GitHub 上檢視 →",
+    "lineRange": "第 {start}-{end} 行"
   },
   "deepIndex": {
     "button": "🔧 深度索引前 {n} 個",
@@ -140,6 +141,7 @@
     "tagsClear": "清除 ({n})",
     "needsKeys": "深度索引前請在 popup 中設定 GitHub PAT 與 AI 服務商金鑰。",
     "needsKeysHint": "💡 要啟用單列 Deep-index,請打開擴充功能 popup 並設定 GitHub PAT 與 AI 服務商金鑰。兩者儲存後按鈕會自動啟用。",
+    "malformedFullName": "倉庫名格式錯誤: {name} (應為 owner/repo)",
     "metaArchived": "archived",
     "metaFork": "fork",
     "deepIndexHint": "💡 深度索引會拉取倉庫原始碼,切成程式碼片段並嵌入向量庫,這樣你可以在 popup 搜尋框直接搜程式碼內容(函式 / 變數 / 註解)。索引完成後試試搜 \"debounce 函式\"、\"prepare SQL\" 這類查詢 — 程式碼片段會和倉庫匹配一起出現在搜尋結果裡。",

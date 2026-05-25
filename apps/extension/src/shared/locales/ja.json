@@ -71,7 +71,8 @@
   },
   "code": {
     "badge": "コード",
-    "viewOnGitHub": "GitHub で表示 →"
+    "viewOnGitHub": "GitHub で表示 →",
+    "lineRange": "L{start}-{end}"
   },
   "deepIndex": {
     "button": "🔧 上位 {n} 件をディープインデックス",
@@ -119,7 +120,8 @@
     "metaFork": "fork",
     "deepIndexHint": "💡 Deep-index pulls the repo's source code, splits it into snippets, and embeds them so you can search code content (functions / variables / comments) from the popup search bar. Try queries like \"debounce function\" or \"prepare SQL\" after indexing — code snippets show up alongside repo matches.",
     "deepIndexDoneToast": "✓ Deep-indexed {repo} — try searching code (e.g. function names) in the popup.",
-    "needsKeysHint": "💡 To enable per-row Deep-index, open the extension popup and configure your GitHub PAT + AI Provider key. The page will refresh those buttons automatically once both are saved."
+    "needsKeysHint": "💡 To enable per-row Deep-index, open the extension popup and configure your GitHub PAT + AI Provider key. The page will refresh those buttons automatically once both are saved.",
+    "malformedFullName": "Malformed repo name: {name} (expected owner/repo)"
   },
   "error": {
     "github": {

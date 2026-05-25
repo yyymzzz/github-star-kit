@@ -473,7 +473,9 @@ export function Manage(): JSX.Element {
         });
 
         const [owner, repo] = star.fullName.split('/');
-        if (!owner || !repo) throw new Error(`Malformed fullName: ${star.fullName}`);
+        if (!owner || !repo) {
+          throw new Error(t('manage.malformedFullName', { name: star.fullName }));
+        }
 
         await indexRepoCode({
           starStore,
