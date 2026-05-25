@@ -56,4 +56,5 @@ export {
   KV_KEY_AI_KEY,
   KV_KEY_AI_PROVIDER,
   KV_KEY_LOCALE,
+  KV_KEY_VIEW_MODE,
 } from '../shared/keys.js';

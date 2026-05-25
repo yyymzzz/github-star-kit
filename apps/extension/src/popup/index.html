@@ -19,6 +19,18 @@
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         font-size: 14px;
       }
+      /* R32 favbox-inspired: explicit theme tokens for OS dark-mode.
+       * Mirrors manage/index.html's defaults — popup previously relied on
+       * Chrome's color-scheme declaration alone, which sets text/bg via the
+       * browser's UA stylesheet. That works on most platforms but a few
+       * Linux desktops + corporate Chromiums leave the popup with default
+       * #ffffff bg in dark mode → black-on-white text in a dark browser. */
+      @media (prefers-color-scheme: dark) {
+        body { background: #0d1117; color: #c9d1d9; }
+      }
+      @media (prefers-color-scheme: light) {
+        body { background: #ffffff; color: #1f2328; }
+      }
       #root { width: 100%; min-height: 100vh; }
     </style>
   </head>

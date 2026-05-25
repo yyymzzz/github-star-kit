@@ -47,6 +47,7 @@ import {
   KV_KEY_AI_KEY,
   KV_KEY_AI_PROVIDER,
   KV_KEY_PAT,
+  KV_KEY_VIEW_MODE,
 } from '../popup/db.js';
 import { AI_PRESETS, DEFAULT_AI_PRESET, type AiPresetId } from '../shared/ai-presets.js';
 import { localizeError } from '../shared/error-i18n.js';
@@ -87,7 +88,17 @@ const DEFAULT_FILTERS: Filters = {
 const CARD_WIDTH_TARGET = 320;
 const CARD_HEIGHT = 200;
 const GRID_GAP = 12;
-const ROW_HEIGHT = CARD_HEIGHT + GRID_GAP;
+const ROW_HEIGHT_CARD = CARD_HEIGHT + GRID_GAP;
+// R32 ViewMode (favbox-inspired): three display densities. Card is the
+// R25 default (multi-col grid for breathing room on wide screens). List
+// is single-column with taller rows showing more description (good for
+// reading-focused browsing). Compact is single-column with ONE-LINE rows
+// for high-density 1000-star browsing where the user only scans names.
+const LIST_ROW_HEIGHT = 140;
+const COMPACT_ROW_HEIGHT = 52;
+type ViewMode = 'card' | 'list' | 'compact';
+const isValidViewMode = (v: unknown): v is ViewMode =>
+  v === 'card' || v === 'list' || v === 'compact';
 
 /** Max tag chips to surface in the filter bar. Limits visual sprawl on
  *  power-user accounts whose auto-tag run produced 100+ distinct tags;
@@ -127,6 +138,10 @@ export function Manage(): JSX.Element {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [sortBy, setSortBy] = useState<SortBy>('starredAt');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  // R32 ViewMode (favbox-inspired). Persisted via KV_KEY_VIEW_MODE so
+  // user preference survives across page reloads. Default 'card' matches
+  // R25 behavior — existing users see no change unless they pick another.
+  const [viewMode, setViewMode] = useState<ViewMode>('card');
 
   /** Per-row in-flight Deep-index state. Map keyed by starId so multiple
    *  rows can show progress independently if user clicks several before
@@ -161,12 +176,22 @@ export function Manage(): JSX.Element {
     if (typeof window === 'undefined') return 920;
     return Math.min(window.innerWidth, 960) - 40;
   });
+  // R32: columnsPerRow + rowHeight now depend on viewMode. Card mode keeps
+  // R25's multi-col reflow. List + Compact are single-column with taller
+  // (list) or single-line (compact) row heights for read-focused vs
+  // scan-focused browsing density.
   const columnsPerRow = useMemo(() => {
+    if (viewMode === 'list' || viewMode === 'compact') return 1;
     return Math.max(
       1,
       Math.floor((containerWidth + GRID_GAP) / (CARD_WIDTH_TARGET + GRID_GAP))
     );
-  }, [containerWidth]);
+  }, [containerWidth, viewMode]);
+  const rowHeight = useMemo(() => {
+    if (viewMode === 'compact') return COMPACT_ROW_HEIGHT;
+    if (viewMode === 'list') return LIST_ROW_HEIGHT;
+    return ROW_HEIGHT_CARD;
+  }, [viewMode]);
 
   // ─── Initial load ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -174,15 +199,17 @@ export function Manage(): JSX.Element {
     void (async () => {
       try {
         const { starStore, vectorStore, kvStore } = await getStores();
-        const [stars, vecRows, storedPat, storedKey, storedProvider] =
+        const [stars, vecRows, storedPat, storedKey, storedProvider, storedView] =
           await Promise.all([
             starStore.list(),
             vectorStore.list(),
             kvStore.get<string>(KV_KEY_PAT),
             kvStore.get<string>(KV_KEY_AI_KEY),
             kvStore.get<string>(KV_KEY_AI_PROVIDER),
+            kvStore.get<string>(KV_KEY_VIEW_MODE),
           ]);
         if (cancelled) return;
+        if (isValidViewMode(storedView)) setViewMode(storedView);
 
         // Index vectors by starId so per-star cosine is O(1).
         const byId = new Map<number, ReadonlyArray<number>>();
@@ -217,6 +244,16 @@ export function Manage(): JSX.Element {
       cancelled = true;
     };
   }, []);
+
+  // ─── Persist viewMode to KV on change (R32) ──────────────────────────
+  // Fire-and-forget; failure here is non-fatal (next page load will fall
+  // back to default 'card'). Doesn't block render.
+  useEffect(() => {
+    void (async () => {
+      const { kvStore } = await getStores();
+      await kvStore.set(KV_KEY_VIEW_MODE, viewMode);
+    })();
+  }, [viewMode]);
 
   // ─── List-height + container-width recompute on window resize ────────
   // R25: also tracks horizontal width for the responsive card grid.
@@ -643,6 +680,8 @@ export function Manage(): JSX.Element {
             onToggleTag={toggleTag}
             onSortByChange={setSortBy}
             onSortOrderChange={setSortOrder}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
           />
 
           {visible.length === 0 ? (
@@ -654,11 +693,11 @@ export function Manage(): JSX.Element {
             <FixedSizeList
               height={listHeight}
               width="100%"
-              // R25 card-grid: items are ROWS of `columnsPerRow` cards,
-              // so total item count is ceil(stars / cols). Each list row
-              // renders columnsPerRow Cards via CSS grid.
+              // R25 card-grid + R32 ViewMode: items are ROWS of N cards
+              // (N=1 for list/compact mode, dynamic for card mode based
+              // on container width). Total item count = ceil(stars / N).
               itemCount={Math.ceil(visible.length / columnsPerRow)}
-              itemSize={ROW_HEIGHT}
+              itemSize={rowHeight}
               overscanCount={3}
               itemData={{
                 stars: visible,
@@ -666,6 +705,7 @@ export function Manage(): JSX.Element {
                 onDeepIndex: onPerRowDeepIndex,
                 canDeepIndex: aiKey !== '' && pat !== '',
                 columnsPerRow,
+                viewMode,
               }}
             >
               {GridRow}
@@ -703,6 +743,8 @@ function FilterBar(props: {
   readonly onToggleTag: (tag: string) => void;
   readonly onSortByChange: (v: SortBy) => void;
   readonly onSortOrderChange: (v: SortOrder) => void;
+  readonly viewMode: ViewMode;
+  readonly onViewModeChange: (v: ViewMode) => void;
 }): JSX.Element {
   const { t } = useI18n();
   return (
@@ -764,6 +806,36 @@ function FilterBar(props: {
           {props.sortOrder === 'desc' ? '↓' : '↑'}
         </button>
 
+        {/* R32 ViewMode toggle — 3-button group (Cards / List / Compact) */}
+        <div
+          style={styles.viewModeGroup}
+          role="group"
+          aria-label={t('manage.viewModeTitle')}
+        >
+          {(['card', 'list', 'compact'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => props.onViewModeChange(m)}
+              style={
+                props.viewMode === m
+                  ? styles.viewModeButtonActive
+                  : styles.viewModeButton
+              }
+              title={t('manage.viewModeTitle')}
+              aria-pressed={props.viewMode === m}
+            >
+              {t(
+                m === 'card'
+                  ? 'manage.viewModeCard'
+                  : m === 'list'
+                    ? 'manage.viewModeList'
+                    : 'manage.viewModeCompact'
+              )}
+            </button>
+          ))}
+        </div>
+
         <label style={styles.toggleLabel}>
           <input
             type="checkbox"
@@ -821,6 +893,7 @@ interface GridData {
   readonly onDeepIndex: (star: StarredRepo) => void;
   readonly canDeepIndex: boolean;
   readonly columnsPerRow: number;
+  readonly viewMode: ViewMode;
 }
 
 /**
@@ -845,6 +918,38 @@ function GridRow(props: {
   const start = index * data.columnsPerRow;
   const end = Math.min(start + data.columnsPerRow, data.stars.length);
   const slice = data.stars.slice(start, end);
+  // R32: dispatch to the right repo-row component based on viewMode.
+  // Card mode keeps R25's CSS grid; list/compact use a single full-
+  // width row so we keep the FixedSizeList virtualization but render
+  // a denser layout per row.
+  if (data.viewMode === 'compact') {
+    const star = slice[0];
+    if (!star) return <div style={style} />;
+    return (
+      <div style={{ ...style, padding: '0 4px' }}>
+        <CompactRow
+          star={star}
+          indexing={data.perRowState.has(star.id)}
+          canDeepIndex={data.canDeepIndex}
+          onDeepIndex={data.onDeepIndex}
+        />
+      </div>
+    );
+  }
+  if (data.viewMode === 'list') {
+    const star = slice[0];
+    if (!star) return <div style={style} />;
+    return (
+      <div style={{ ...style, padding: `0 4px ${GRID_GAP / 2}px 4px` }}>
+        <ListRow
+          star={star}
+          indexing={data.perRowState.has(star.id)}
+          canDeepIndex={data.canDeepIndex}
+          onDeepIndex={data.onDeepIndex}
+        />
+      </div>
+    );
+  }
   return (
     <div
       style={{
@@ -864,6 +969,149 @@ function GridRow(props: {
           onDeepIndex={data.onDeepIndex}
         />
       ))}
+    </div>
+  );
+}
+
+/**
+ * R32 ViewMode 'list' — single-column wide row with more description
+ * lines visible than Card. Optimized for reading-focused browsing
+ * where the user wants to scan summaries / aiTags carefully.
+ */
+function ListRow(props: {
+  readonly star: StarredRepo;
+  readonly indexing: boolean;
+  readonly canDeepIndex: boolean;
+  readonly onDeepIndex: (star: StarredRepo) => void;
+}): JSX.Element {
+  const { star, indexing, canDeepIndex, onDeepIndex } = props;
+  const { t, locale } = useI18n();
+  const displayDesc =
+    locale !== 'en' && star.descriptionI18n?.[locale]
+      ? star.descriptionI18n[locale]!
+      : star.description;
+  const localizedRaw =
+    locale !== 'en' && star.aiTagsI18n?.[locale] ? star.aiTagsI18n[locale] : null;
+  const displayTags =
+    localizedRaw && localizedRaw.length > 0
+      ? localizedRaw.split(/[,\n]/).map((s) => s.trim()).filter((s) => s.length > 0)
+      : star.aiTags;
+  return (
+    <div style={styles.listRow}>
+      <div style={styles.cardHeader}>
+        <a
+          href={star.htmlUrl}
+          target="_blank"
+          rel="noreferrer"
+          style={styles.repoName}
+          title={star.description ?? undefined}
+        >
+          {star.fullName}
+        </a>
+        <div style={styles.cardHeaderRight}>
+          {star.language && <span style={styles.lang}>{star.language}</span>}
+          <span style={styles.stars}>
+            ★ {star.stargazersCount.toLocaleString()}
+          </span>
+        </div>
+      </div>
+      {displayDesc && <p style={styles.listDesc}>{displayDesc}</p>}
+      {displayTags.length > 0 && (
+        <div style={styles.tagRow}>
+          {displayTags.slice(0, 6).map((tg) => (
+            <span key={tg} style={styles.tagChipDisplay}>{tg}</span>
+          ))}
+          {displayTags.length > 6 && (
+            <span style={styles.tagChipOverflow}>+{displayTags.length - 6}</span>
+          )}
+        </div>
+      )}
+      <div style={styles.cardFooter}>
+        <span style={styles.rowMeta}>
+          {formatRelativeTime(star.starredAt)}
+          {star.pushedAt && ` · ${formatRelativeTime(star.pushedAt)}`}
+          {star.archived && ` · ${t('manage.metaArchived')}`}
+          {star.isFork && ` · ${t('manage.metaFork')}`}
+        </span>
+        {star.deepIndexed ? (
+          <span style={styles.deepIndexedBadge}>{t('deepIndex.rowDone')}</span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onDeepIndex(star)}
+            disabled={!canDeepIndex || indexing}
+            style={styles.deepIndexButton}
+            title={
+              !canDeepIndex
+                ? t('deepIndex.rowTitleDisabled')
+                : indexing
+                  ? t('deepIndex.rowTitleInProgress')
+                  : t('deepIndex.rowTitleEnabled')
+            }
+          >
+            {indexing ? t('deepIndex.rowIndexing') : t('deepIndex.rowButton')}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * R32 ViewMode 'compact' — single-line per repo for high-density
+ * scanning of 1000+ stars. Truncates description to one line; shows
+ * only the count of aiTags (not the chips themselves) to save space.
+ */
+function CompactRow(props: {
+  readonly star: StarredRepo;
+  readonly indexing: boolean;
+  readonly canDeepIndex: boolean;
+  readonly onDeepIndex: (star: StarredRepo) => void;
+}): JSX.Element {
+  const { star, indexing, canDeepIndex, onDeepIndex } = props;
+  const { t, locale } = useI18n();
+  const displayDesc =
+    locale !== 'en' && star.descriptionI18n?.[locale]
+      ? star.descriptionI18n[locale]!
+      : star.description;
+  return (
+    <div style={styles.compactRow}>
+      <a
+        href={star.htmlUrl}
+        target="_blank"
+        rel="noreferrer"
+        style={styles.compactRepoName}
+        title={star.description ?? undefined}
+      >
+        {star.fullName}
+      </a>
+      <span style={styles.compactDesc}>{displayDesc ?? ''}</span>
+      <div style={styles.compactMetaGroup}>
+        {star.language && <span style={styles.lang}>{star.language}</span>}
+        <span style={styles.stars}>★ {star.stargazersCount.toLocaleString()}</span>
+        {star.aiTags.length > 0 && (
+          <span style={styles.compactTagCount}>#{star.aiTags.length}</span>
+        )}
+        {star.deepIndexed ? (
+          <span style={styles.deepIndexedBadge}>🔧</span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onDeepIndex(star)}
+            disabled={!canDeepIndex || indexing}
+            style={styles.compactDeepIndexButton}
+            title={
+              !canDeepIndex
+                ? t('deepIndex.rowTitleDisabled')
+                : indexing
+                  ? t('deepIndex.rowTitleInProgress')
+                  : t('deepIndex.rowTitleEnabled')
+            }
+          >
+            {indexing ? '⏳' : '🔧'}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -1246,6 +1494,114 @@ const styles = {
     color: 'rgb(75, 85, 99)',
     borderRadius: '10px',
     fontWeight: 500,
+  },
+  // R32 ViewMode 'list': taller single-column row with bigger description
+  // area than Card. Tag chips truncated at 6 instead of 4.
+  listRow: {
+    height: `${LIST_ROW_HEIGHT - GRID_GAP / 2}px`,
+    padding: '12px 16px',
+    background: 'rgba(127, 127, 127, 0.03)',
+    border: '1px solid rgba(127, 127, 127, 0.18)',
+    borderRadius: '8px',
+    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '6px',
+    overflow: 'hidden' as const,
+  },
+  listDesc: {
+    margin: 0,
+    fontSize: '12.5px',
+    opacity: 0.8,
+    lineHeight: 1.45,
+    overflow: 'hidden' as const,
+    display: '-webkit-box' as const,
+    WebkitBoxOrient: 'vertical' as const,
+    WebkitLineClamp: 2,
+  },
+  // R32 ViewMode 'compact': single-line layout for high-density browse.
+  compactRow: {
+    height: `${COMPACT_ROW_HEIGHT - 4}px`,
+    padding: '6px 12px',
+    border: '1px solid rgba(127, 127, 127, 0.12)',
+    borderRadius: '6px',
+    display: 'flex',
+    alignItems: 'center' as const,
+    gap: '10px',
+    overflow: 'hidden' as const,
+    fontSize: '12px',
+  },
+  compactRepoName: {
+    fontWeight: 600,
+    fontSize: '12.5px',
+    color: 'inherit',
+    textDecoration: 'none',
+    flexShrink: 0,
+    maxWidth: '280px',
+    overflow: 'hidden' as const,
+    textOverflow: 'ellipsis' as const,
+    whiteSpace: 'nowrap' as const,
+  },
+  compactDesc: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: '11.5px',
+    opacity: 0.7,
+    overflow: 'hidden' as const,
+    textOverflow: 'ellipsis' as const,
+    whiteSpace: 'nowrap' as const,
+  },
+  compactMetaGroup: {
+    display: 'flex',
+    alignItems: 'center' as const,
+    gap: '10px',
+    flexShrink: 0,
+    fontSize: '10.5px',
+    opacity: 0.75,
+  },
+  compactTagCount: {
+    fontSize: '10px',
+    padding: '1px 5px',
+    background: 'rgba(99, 102, 241, 0.12)',
+    color: 'rgb(67, 56, 202)',
+    borderRadius: '8px',
+    fontWeight: 500,
+  },
+  compactDeepIndexButton: {
+    fontSize: '11px',
+    padding: '2px 6px',
+    border: '1px solid rgba(127, 127, 127, 0.3)',
+    borderRadius: '4px',
+    background: 'transparent',
+    color: 'inherit',
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  // R32 ViewModeToggle: 3-button group on FilterBar. Active mode uses
+  // indigo accent matching tagChipActive; inactive uses neutral surface.
+  viewModeGroup: {
+    display: 'inline-flex',
+    borderRadius: '6px',
+    border: '1px solid rgba(127, 127, 127, 0.3)',
+    overflow: 'hidden' as const,
+  },
+  viewModeButton: {
+    fontSize: '11px',
+    padding: '4px 10px',
+    background: 'transparent',
+    color: 'inherit',
+    border: 'none',
+    cursor: 'pointer',
+    fontWeight: 500,
+  },
+  viewModeButtonActive: {
+    fontSize: '11px',
+    padding: '4px 10px',
+    background: 'rgba(99, 102, 241, 0.18)',
+    color: 'rgb(67, 56, 202)',
+    border: 'none',
+    cursor: 'pointer',
+    fontWeight: 600,
   },
   rowMeta: {
     fontSize: '10px',

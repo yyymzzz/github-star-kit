@@ -42,6 +42,15 @@ export const KV_KEY_AI_PROVIDER = 'ai.provider';
  */
 export const KV_KEY_LOCALE = 'ui.locale';
 
+/**
+ * Key for the manage-page card view density (R32 favbox-inspired).
+ * Values: 'card' (R25 default — multi-col grid, ~3 cards/row at 960px),
+ * 'list' (1 col, taller rows, more description visible),
+ * 'compact' (1 col, single-line rows, optimized for 1000+ stars browsing).
+ * Persists per-user; cold-start falls back to 'card'.
+ */
+export const KV_KEY_VIEW_MODE = 'ui.manage.viewMode';
+
 /** chrome.alarms name for the periodic sync schedule. */
 export const ALARM_NAME = 'starkit-sync';
 
