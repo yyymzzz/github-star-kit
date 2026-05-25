@@ -590,6 +590,17 @@ export function Manage(): JSX.Element {
         <div style={styles.deepIndexHint}>{t('manage.deepIndexHint')}</div>
       )}
 
+      {/* R30 蓝军 round-4 MINOR #4: when user hasn't configured PAT or
+       *  AI key yet, the per-row Deep-index button is disabled with
+       *  only a tooltip explaining why. On touch / fast-scroll users
+       *  may click the disabled button thinking it's broken. This
+       *  banner gives explicit guidance about where to configure keys.
+       *  Mutually exclusive with deepIndexHint (the dependency on
+       *  aiKey/pat being non-empty above means only one shows at a time). */}
+      {(aiKey === '' || pat === '') && allStars.length > 0 && (
+        <div style={styles.deepIndexHint}>{t('manage.needsKeysHint')}</div>
+      )}
+
       {/* Translate progress + button row (R5 v0.3). Renders only when
        *  the user can act on it: non-English UI, has AI key, and there
        *  are stars left to translate. Button hides during translation

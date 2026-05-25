@@ -139,6 +139,7 @@
     "tagCountTitle": "{n} 个 star 包含此标签",
     "tagsClear": "清除 ({n})",
     "needsKeys": "深度索引前请在 popup 中配置 GitHub PAT 和 AI 服务商密钥。",
+    "needsKeysHint": "💡 要启用单行 Deep-index,请打开扩展 popup 并配置 GitHub PAT 与 AI 服务商密钥。两者保存后按钮会自动启用。",
     "metaArchived": "已归档",
     "metaFork": "fork",
     "deepIndexHint": "💡 深度索引会拉取仓库源码,切成代码片段并嵌入向量库,这样你可以在 popup 搜索框直接搜代码内容(函数 / 变量 / 注释)。索引完成后试试搜 \"debounce 函数\"、\"prepare SQL\" 这类查询 — 代码片段会和仓库匹配一起出现在搜索结果里。",
