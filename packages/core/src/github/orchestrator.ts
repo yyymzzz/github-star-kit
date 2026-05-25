@@ -281,10 +281,18 @@ async function mergeLocalFields(
     }
     const next: StarredRepo = { ...row };
     for (const field of LOCAL_ONLY_FIELDS) {
-      // `as never` is the established workaround for assigning into a union-
-      // valued generic key — runtime is `(next as any)[field] = existing[field]`
-      // but typed soundly.
-      (next as Record<string, unknown>)[field] = existing[field];
+      // R21 蓝军 round-2 MINOR (subagent A): use `?? row[field]` to defend
+      // against legacy IDB rows missing a Phase-6+ field. The existing row
+      // can be `undefined` at field positions like `descriptionI18n` if it
+      // was written before the schema added that key. Zod's parse-on-write
+      // self-heals via `.default({})` today, but a future code path that
+      // skips zod parse would persist `undefined` and break facets. The
+      // coalesce falls back to `row[field]` (which always has the zod
+      // default applied since `row` came through transformStarred → zod
+      // parse) when existing is missing the key entirely.
+      (next as Record<string, unknown>)[field] =
+        (existing as Record<string, unknown>)[field] ??
+        (row as Record<string, unknown>)[field];
     }
     merged[i] = next;
   }

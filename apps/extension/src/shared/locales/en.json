@@ -71,7 +71,13 @@
     "button": "🔧 Deep-index top {n}",
     "buttonMore": "🔧 Deep-index +{n} more",
     "progress": "Deep-indexing {repo} ({done}/{total})…",
-    "noNewRepos": "No new repos to deep-index (already covered top {n} by stars)."
+    "noNewRepos": "No new repos to deep-index (already covered top {n} by stars).",
+    "rowButton": "🔧 Deep-index",
+    "rowIndexing": "⏳ Indexing…",
+    "rowDone": "🔧 deep-indexed",
+    "rowTitleEnabled": "Fetch source + embed code chunks so this repo shows up in code search",
+    "rowTitleDisabled": "Configure PAT + AI key in the popup first.",
+    "rowTitleInProgress": "In progress…"
   },
   "stars": {
     "noStarsCached": "No stars cached yet.",

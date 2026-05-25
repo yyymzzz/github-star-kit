@@ -71,7 +71,13 @@
     "button": "🔧 Indexar profundo top {n}",
     "buttonMore": "🔧 Indexar mais {n}",
     "progress": "Indexando {repo} ({done}/{total})…",
-    "noNewRepos": "Top {n} por estrelas já cobertos."
+    "noNewRepos": "Top {n} por estrelas já cobertos.",
+    "rowButton": "🔧 Indexar profundo",
+    "rowIndexing": "⏳ Indexando…",
+    "rowDone": "🔧 indexado profundo",
+    "rowTitleEnabled": "Busca código-fonte + incorpora fragmentos de código para que este repo apareça na busca de código",
+    "rowTitleDisabled": "Configure PAT + chave AI no popup primeiro.",
+    "rowTitleInProgress": "Em andamento…"
   },
   "stars": {
     "noStarsCached": "Sem stars em cache.",

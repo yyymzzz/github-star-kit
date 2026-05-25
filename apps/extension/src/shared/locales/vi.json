@@ -71,7 +71,13 @@
     "button": "🔧 Index sâu top {n}",
     "buttonMore": "🔧 Index sâu thêm {n}",
     "progress": "Đang index {repo} ({done}/{total})…",
-    "noNewRepos": "Top {n} theo stars đã được cover."
+    "noNewRepos": "Top {n} theo stars đã được cover.",
+    "rowButton": "🔧 Index sâu",
+    "rowIndexing": "⏳ Đang index…",
+    "rowDone": "🔧 đã index sâu",
+    "rowTitleEnabled": "Tải mã nguồn + nhúng đoạn code để repo này xuất hiện trong tìm kiếm code",
+    "rowTitleDisabled": "Cấu hình PAT + khóa AI trong popup trước.",
+    "rowTitleInProgress": "Đang chạy…"
   },
   "stars": {
     "noStarsCached": "Chưa có stars trong cache.",

@@ -71,7 +71,13 @@
     "button": "🔧 Глубокая индексация топ {n}",
     "buttonMore": "🔧 Ещё {n} в глубокий индекс",
     "progress": "Индексация {repo} ({done}/{total})…",
-    "noNewRepos": "Топ {n} по звёздам уже покрыт."
+    "noNewRepos": "Топ {n} по звёздам уже покрыт.",
+    "rowButton": "🔧 Глуб. индекс",
+    "rowIndexing": "⏳ Индексация…",
+    "rowDone": "🔧 проиндекс. (глубоко)",
+    "rowTitleEnabled": "Получает исходный код + встраивает фрагменты, чтобы репо появлялся в поиске по коду",
+    "rowTitleDisabled": "Сначала настройте PAT + AI-ключ в popup.",
+    "rowTitleInProgress": "Выполняется…"
   },
   "stars": {
     "noStarsCached": "Нет звёзд в кэше.",

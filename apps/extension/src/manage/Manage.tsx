@@ -446,11 +446,24 @@ export function Manage(): JSX.Element {
           getExisting: (id) => vectorStore.get(id),
         });
 
-        // Flip the star's deepIndexed flag locally so the row label updates.
-        await starStore.upsertMany([{ ...star, deepIndexed: true }]);
-        setAllStars((prev) =>
-          prev.map((s) => (s.id === star.id ? { ...s, deepIndexed: true } : s))
-        );
+        // R21 蓝军 round-2 MAJOR (subagent A): re-read the star from
+        // starStore BEFORE the upsert. The `star` parameter is captured
+        // by the row's click closure at render time; if a concurrent
+        // onTranslate updated descriptionI18n/aiTagsI18n between render
+        // and this click, the stale spread `{ ...star, deepIndexed: true }`
+        // would WIPE those freshly-translated fields — same data-loss
+        // class as the R21 P0 sync-wipes-i18n bug. Mirrors the read-
+        // then-merge pattern popup onAutoTag uses (App.tsx:625).
+        const fresh = await starStore.get(star.id);
+        if (fresh) {
+          await starStore.upsertMany([{ ...fresh, deepIndexed: true }]);
+          setAllStars((prev) =>
+            prev.map((s) => (s.id === star.id ? { ...s, deepIndexed: true } : s))
+          );
+        }
+        // else: star vanished (user un-starred during the run); do not
+        // synthesize from the stale closure. Caller's allStars will
+        // reflect the un-star on next sync — no UI inconsistency.
       } catch (err) {
         setError(formatError(err));
       } finally {
@@ -500,16 +513,20 @@ export function Manage(): JSX.Element {
         <div style={styles.actionBar}>
           {translateState === 'translating' && translateProgress ? (
             <span style={styles.actionBarNotice}>
-              🌐 Translating {translateProgress.done}/{translateProgress.total}…
+              🌐{' '}
+              {t('translate.translating', {
+                done: translateProgress.done,
+                total: translateProgress.total,
+              })}
             </span>
           ) : (
             <button
               type="button"
               onClick={() => void onTranslate()}
               style={styles.actionBarButton}
-              title={`Translate ${untranslatedCount} descriptions + tags into ${locale}. Uses your AI provider key.`}
+              title={t('translate.title', { n: untranslatedCount, locale })}
             >
-              🌐 Translate {untranslatedCount} repo{untranslatedCount === 1 ? '' : 's'}
+              {t('translate.button', { n: untranslatedCount })}
             </button>
           )}
         </div>
@@ -708,7 +725,7 @@ function Row(props: {
 }): JSX.Element {
   const star = props.data.stars[props.index]!;
   const indexing = props.data.perRowState.has(star.id);
-  const { locale } = useI18n();
+  const { t, locale } = useI18n();
   // Same Phase 6 localized-description fallback as popup's RepoLink:
   // prefer cached translation for the active locale, fall back to original.
   const displayDesc =
@@ -766,7 +783,7 @@ function Row(props: {
             {star.isFork && ' · fork'}
           </span>
           {star.deepIndexed ? (
-            <span style={styles.deepIndexedBadge}>🔧 deep-indexed</span>
+            <span style={styles.deepIndexedBadge}>{t('deepIndex.rowDone')}</span>
           ) : (
             <button
               type="button"
@@ -775,13 +792,13 @@ function Row(props: {
               style={styles.deepIndexButton}
               title={
                 !props.data.canDeepIndex
-                  ? 'Configure PAT + AI key in the popup first.'
+                  ? t('deepIndex.rowTitleDisabled')
                   : indexing
-                    ? 'In progress…'
-                    : 'Fetch source + embed code chunks so this repo shows up in code search'
+                    ? t('deepIndex.rowTitleInProgress')
+                    : t('deepIndex.rowTitleEnabled')
               }
             >
-              {indexing ? '⏳ Indexing…' : '🔧 Deep-index'}
+              {indexing ? t('deepIndex.rowIndexing') : t('deepIndex.rowButton')}
             </button>
           )}
         </div>

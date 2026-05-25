@@ -744,7 +744,18 @@ export function App(): JSX.Element {
         // (auth / rate-limit / network / empty fetch); marking it "done"
         // would permanently hide the repo from future Deep-index clicks.
         if (result.indexed > 0) {
-          await starStore.upsertMany([{ ...star, deepIndexed: true }]);
+          // R21 蓝军 round-2 (subagent A defense-in-depth): re-read the
+          // star from starStore before the spread. The `star` in this
+          // loop's local var is from `candidates` (frozen at click time);
+          // if cron sync OR a concurrent manage-page translate ran during
+          // the indexRepoCode call (typically 30-90s per repo), the
+          // captured `star` would be stale and wipe fresh descriptionI18n.
+          // Same data-loss class as R21 P0 sync-wipes-i18n.
+          const fresh = await starStore.get(star.id);
+          if (fresh) {
+            await starStore.upsertMany([{ ...fresh, deepIndexed: true }]);
+          }
+          // else: user un-starred during the run; don't synthesize.
         } else if (result.failed > 0 || result.chunks > 0) {
           // chunks > 0 but indexed === 0 = every batch failed.
           // chunks === 0 + failed === 0 = empty fetch / all-skipped files
@@ -1084,15 +1095,21 @@ export function App(): JSX.Element {
           style={styles.primaryButton}
         >
           {indexedCount === 0
-            ? `Build search index (${knownCount} stars)`
-            : `Update search index (${knownCount - indexedCount} new)`}
+            ? t('index.buildButton', { n: knownCount })
+            : t('index.updateButton', { n: knownCount - indexedCount })}
         </button>
       )}
 
       {embedState === 'embedding' && indexProgress && (
         <div style={styles.notice}>
-          Embedding {indexProgress.done}/{indexProgress.total}
-          {indexCoverage !== null ? ` · ${indexCoverage}% indexed` : ''}…
+          {t('index.embeddingProgress', {
+            done: indexProgress.done,
+            total: indexProgress.total,
+          })}
+          {indexCoverage !== null
+            ? ' · ' + t('index.percentIndexed', { pct: indexCoverage })
+            : ''}
+          …
         </div>
       )}
 
@@ -1117,7 +1134,9 @@ export function App(): JSX.Element {
               onClick={() => void onAutoTag()}
               style={{ ...styles.secondaryButton, flex: 1 }}
             >
-              Auto-tag {untaggedCount} repo{untaggedCount === 1 ? '' : 's'}
+              {untaggedCount === 1
+                ? t('tag.autoTagButtonOne', { n: untaggedCount })
+                : t('tag.autoTagButton', { n: untaggedCount })}
             </button>
           )}
           {untranslatedCount > 0 && translateState === 'idle' && locale !== 'en' && (

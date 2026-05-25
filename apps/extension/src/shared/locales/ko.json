@@ -71,7 +71,13 @@
     "button": "🔧 상위 {n}개 심층 인덱싱",
     "buttonMore": "🔧 추가로 {n}개 심층 인덱싱",
     "progress": "{repo} 심층 인덱싱 중 ({done}/{total})…",
-    "noNewRepos": "스타 수 상위 {n}개를 이미 모두 다뤘습니다."
+    "noNewRepos": "스타 수 상위 {n}개를 이미 모두 다뤘습니다.",
+    "rowButton": "🔧 심층 인덱싱",
+    "rowIndexing": "⏳ 인덱싱 중…",
+    "rowDone": "🔧 심층 인덱싱됨",
+    "rowTitleEnabled": "소스를 가져오고 코드 청크를 임베딩하여 이 저장소가 코드 검색에 나타나게 합니다",
+    "rowTitleDisabled": "먼저 popup에서 PAT와 AI 키를 설정하세요.",
+    "rowTitleInProgress": "진행 중…"
   },
   "stars": {
     "noStarsCached": "캐시된 스타가 없습니다.",

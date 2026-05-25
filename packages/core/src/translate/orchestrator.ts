@@ -196,7 +196,11 @@ export async function translateStars(
   // — desc translation is still cached, only the missing tags fire.
   const noSource: StarredRepo[] = [];
   const toTranslate: StarredRepo[] = [];
-  const alsoTagsResolved = opts.alsoTags ?? true;
+  // R21 蓝军 round-2 fix: hoisted to top so both the skip-loop and the
+  // worker's tags arm reference the same resolved value (was duplicated
+  // between :199 and :278 in the post-R21 commit — same expression,
+  // different binding, easy regression vector).
+  const alsoTags = opts.alsoTags ?? true;
   let skipped = 0;
   for (const star of allStars) {
     if (!star.description || star.description.trim().length === 0) {
@@ -213,7 +217,7 @@ export async function translateStars(
       // aiTagsI18n cache for this locale is populated. Empty/missing
       // cache entry means "needs to be (re-)translated".
       const tagsDone =
-        !alsoTagsResolved ||
+        !alsoTags ||
         star.aiTags.length === 0 ||
         (star.aiTagsI18n &&
           typeof star.aiTagsI18n[opts.targetLocale] === 'string' &&
@@ -275,7 +279,8 @@ export async function translateStars(
     opts.targetLocale,
     localeNativeName
   );
-  const alsoTags = opts.alsoTags ?? true;
+  // alsoTags resolved at the top of the function (see above) — used by
+  // both the skip-loop and the worker's tags arm. Do not re-bind here.
 
   // R20 蓝军: thin wrapper over shared callWithRetry so the call-site stays
   // readable. The shared helper handles all the retry semantics that used

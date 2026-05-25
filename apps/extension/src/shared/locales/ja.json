@@ -71,7 +71,13 @@
     "button": "🔧 上位 {n} 件をディープインデックス",
     "buttonMore": "🔧 さらに {n} 件をディープインデックス",
     "progress": "{repo} をディープインデックス中 ({done}/{total})…",
-    "noNewRepos": "スター数上位 {n} 件は既にカバー済みです。"
+    "noNewRepos": "スター数上位 {n} 件は既にカバー済みです。",
+    "rowButton": "🔧 ディープインデックス",
+    "rowIndexing": "⏳ インデックス中…",
+    "rowDone": "🔧 インデックス済",
+    "rowTitleEnabled": "ソースを取得しコード片を埋め込み、このリポジトリがコード検索に出るようにします",
+    "rowTitleDisabled": "先に popup で PAT と AI キーを設定してください。",
+    "rowTitleInProgress": "実行中…"
   },
   "stars": {
     "noStarsCached": "まだスターがキャッシュされていません。",

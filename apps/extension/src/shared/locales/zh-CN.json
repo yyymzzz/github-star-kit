@@ -71,7 +71,13 @@
     "button": "🔧 深度索引前 {n} 个",
     "buttonMore": "🔧 再深度索引 {n} 个",
     "progress": "正在深度索引 {repo} ({done}/{total})…",
-    "noNewRepos": "已覆盖按 star 数排名前 {n} 的仓库,无新仓库可深度索引。"
+    "noNewRepos": "已覆盖按 star 数排名前 {n} 的仓库,无新仓库可深度索引。",
+    "rowButton": "🔧 深度索引",
+    "rowIndexing": "⏳ 索引中…",
+    "rowDone": "🔧 已深度索引",
+    "rowTitleEnabled": "拉取源码并嵌入代码片段,让该仓库出现在代码搜索中",
+    "rowTitleDisabled": "请先在 popup 中配置 PAT 和 AI 密钥。",
+    "rowTitleInProgress": "进行中…"
   },
   "stars": {
     "noStarsCached": "尚无缓存的 star。",

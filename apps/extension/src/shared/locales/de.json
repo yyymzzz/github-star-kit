@@ -71,7 +71,13 @@
     "button": "🔧 Top {n} tief indizieren",
     "buttonMore": "🔧 {n} weitere tief indizieren",
     "progress": "Indiziere {repo} ({done}/{total})…",
-    "noNewRepos": "Top {n} nach Stars sind bereits abgedeckt."
+    "noNewRepos": "Top {n} nach Stars sind bereits abgedeckt.",
+    "rowButton": "🔧 Tief-Index",
+    "rowIndexing": "⏳ Indiziere…",
+    "rowDone": "🔧 tief-indiziert",
+    "rowTitleEnabled": "Quellcode abrufen und Code-Chunks einbetten, damit dieses Repo in der Code-Suche erscheint",
+    "rowTitleDisabled": "Zuerst PAT + AI-Key im Popup konfigurieren.",
+    "rowTitleInProgress": "Läuft…"
   },
   "stars": {
     "noStarsCached": "Noch keine Stars im Cache.",
