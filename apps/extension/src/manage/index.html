@@ -20,6 +20,36 @@
         body { background: #f6f8fa; color: #1f2328; }
       }
       #root { min-height: 100vh; }
+
+      /* R41 fix: note dialog readability. User reported text from cards
+         behind the dialog bled through (background: 'inherit' inline
+         style made dialog transparent). Solution: OPAQUE per-theme bg
+         + semi-transparent backdrop dim to make focus obvious. */
+      dialog {
+        background: #ffffff;
+        color: #1f2328;
+        border: 1px solid rgba(0, 0, 0, 0.18);
+        box-shadow: 0 10px 32px rgba(0, 0, 0, 0.25);
+      }
+      @media (prefers-color-scheme: dark) {
+        dialog {
+          background: #161b22;
+          color: #c9d1d9;
+          border-color: rgba(255, 255, 255, 0.14);
+          box-shadow: 0 10px 32px rgba(0, 0, 0, 0.6);
+        }
+      }
+      dialog::backdrop {
+        background: rgba(0, 0, 0, 0.45);
+        /* Backdrop-filter for browsers that support it — blurs the
+           cards behind so even if user resizes the dialog smaller,
+           the residual edges aren't legible. Graceful no-op on
+           browsers without support. */
+        backdrop-filter: blur(2px);
+      }
+      @media (prefers-color-scheme: light) {
+        dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
+      }
     </style>
   </head>
   <body>

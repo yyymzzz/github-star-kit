@@ -1903,13 +1903,15 @@ const styles = {
     flexShrink: 0,
   },
   noteDialog: {
-    border: '1px solid rgba(127, 127, 127, 0.3)',
+    // R41 fix: removed `background: 'inherit'` — it made the dialog
+    // transparent against the card grid behind. Backdrop dim + opaque
+    // per-theme bg now lives in manage/index.html (theme-aware via
+    // prefers-color-scheme media query, which inline style can't do).
     borderRadius: '8px',
     padding: 0,
-    maxWidth: '520px',
+    maxWidth: '560px',
     width: '90vw',
-    background: 'inherit',
-    color: 'inherit',
+    maxHeight: '80vh',
   },
   noteDialogForm: {
     display: 'flex',
