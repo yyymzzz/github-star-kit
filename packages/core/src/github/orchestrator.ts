@@ -39,6 +39,23 @@ export interface SyncWithStoreOptions {
    *   - tests that need deterministic full-mode behavior.
    */
   readonly forceFullSync?: boolean;
+  /**
+   * R33 蓝军 CRITICAL #1.2 fix: invoked with the list of starIds the sync
+   * pass detected as un-starred (only on full-mode passes that ran the
+   * cleanup branch). Callers wire this to delete the corresponding
+   * vector rows (`star:N` + `code:N:path:idx`) — without this, the
+   * vector store accumulates orphan rows that pollute search results
+   * AND bloat IDB. @starkit/core stays free of @starkit/vector via this
+   * callback-decoupled hook (no workspace dep cycle).
+   *
+   * Failures inside onUnstar are logged-and-swallowed by the orchestrator
+   * — un-star cleanup of the starStore has ALREADY succeeded at this
+   * point, and bubbling a vector-store error would abort the sync
+   * unnecessarily. Caller can re-run sync to retry.
+   *
+   * Empty list (no un-stars detected) means onUnstar is NOT called.
+   */
+  readonly onUnstar?: (deletedIds: ReadonlyArray<number>) => Promise<void>;
 }
 
 export interface SyncWithStoreStores {
@@ -177,6 +194,23 @@ export async function syncStarsWithStore(
     // Single atomic batch — a mid-cleanup failure must not leave the store
     // partially reconciled (some un-stars applied, others not).
     deleted = await starStore.deleteMany(toDelete);
+    // R33 蓝军 CRITICAL #1.2: notify caller so they can clean up orphan
+    // vector rows (`star:N`, `code:N:path:idx`). Failures here are
+    // logged-and-swallowed — the starStore cleanup already succeeded
+    // and vector orphans are a softer corruption (search will skip
+    // hits whose starId isn't in starStore anyway, see App.tsx:936
+    // rehydrate-or-null pattern). Caller can retry by re-syncing.
+    if (toDelete.length > 0 && options.onUnstar) {
+      try {
+        await options.onUnstar(toDelete);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[starkit] onUnstar vector cleanup failed (orphan rows may remain):',
+          err
+        );
+      }
+    }
     nextLastFullSyncAt = syncResult.fetchedAt;
   }
   const knownCountAfter = await starStore.count();

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CursorStoreMemory, StarStoreMemory } from '../storage/memory.js';
 import { createGithubClient } from './client.js';
 import { syncStarsWithStore } from './orchestrator.js';
@@ -309,6 +309,106 @@ describe('syncStarsWithStore — un-star cleanup (mirror semantics)', () => {
     // (here prior since was 2026-05-02, which is preserved as high-water mark).
     const cursor = await cursorStore.get();
     expect(cursor?.etag).toBe('"empty-e"');
+  });
+
+  // R33 蓝军 CRITICAL #1.2 regression — orphan vector rows
+  it('invokes onUnstar with deleted ids so caller can clean orphan vectors (R33)', async () => {
+    const starStore = new StarStoreMemory();
+    const cursorStore = new CursorStoreMemory();
+    const client = createGithubClient({ token: TOKEN, retries: 0 });
+    const unstarSpy: number[][] = [];
+
+    nextJson(
+      fm,
+      [
+        sampleStar(1, '2026-05-01T00:00:00Z'),
+        sampleStar(2, '2026-05-02T00:00:00Z'),
+        sampleStar(3, '2026-05-03T00:00:00Z'),
+      ],
+      { headers: { etag: '"e1"' } }
+    );
+    await syncStarsWithStore(client, { starStore, cursorStore });
+
+    // 2 and 3 are un-starred; only 1 remains.
+    nextJson(fm, [sampleStar(1, '2026-05-01T00:00:00Z')], {
+      headers: { etag: '"e2"' },
+    });
+    const result = await syncStarsWithStore(
+      client,
+      { starStore, cursorStore },
+      {
+        forceFullSync: true,
+        onUnstar: async (ids) => {
+          unstarSpy.push([...ids]);
+        },
+      }
+    );
+
+    expect(result.deleted).toBe(2);
+    expect(unstarSpy).toHaveLength(1);
+    // Order isn't guaranteed but the SET must match {2, 3}.
+    expect(new Set(unstarSpy[0])).toEqual(new Set([2, 3]));
+  });
+
+  it('does NOT invoke onUnstar when nothing was un-starred (zero-cost guard)', async () => {
+    const starStore = new StarStoreMemory();
+    const cursorStore = new CursorStoreMemory();
+    const client = createGithubClient({ token: TOKEN, retries: 0 });
+    const unstarSpy = vi.fn(async (_ids: ReadonlyArray<number>) => {});
+
+    nextJson(fm, [sampleStar(1, '2026-05-01T00:00:00Z')], {
+      headers: { etag: '"e1"' },
+    });
+    await syncStarsWithStore(client, { starStore, cursorStore });
+
+    // Same list — no un-stars.
+    nextJson(fm, [sampleStar(1, '2026-05-01T00:00:00Z')], {
+      headers: { etag: '"e2"' },
+    });
+    await syncStarsWithStore(
+      client,
+      { starStore, cursorStore },
+      { forceFullSync: true, onUnstar: unstarSpy }
+    );
+
+    expect(unstarSpy).not.toHaveBeenCalled();
+  });
+
+  it('swallows onUnstar failures — starStore cleanup already succeeded', async () => {
+    // Vector store cleanup failing shouldn't abort the sync since the
+    // starStore was already cleaned. Caller can retry by re-syncing
+    // (it'll be a no-op for starStore but onUnstar fires again).
+    const starStore = new StarStoreMemory();
+    const cursorStore = new CursorStoreMemory();
+    const client = createGithubClient({ token: TOKEN, retries: 0 });
+
+    nextJson(
+      fm,
+      [
+        sampleStar(1, '2026-05-01T00:00:00Z'),
+        sampleStar(2, '2026-05-02T00:00:00Z'),
+      ],
+      { headers: { etag: '"e1"' } }
+    );
+    await syncStarsWithStore(client, { starStore, cursorStore });
+
+    nextJson(fm, [sampleStar(1, '2026-05-01T00:00:00Z')], {
+      headers: { etag: '"e2"' },
+    });
+    const result = await syncStarsWithStore(
+      client,
+      { starStore, cursorStore },
+      {
+        forceFullSync: true,
+        onUnstar: async () => {
+          throw new Error('vector store down');
+        },
+      }
+    );
+
+    // Sync still reports the successful starStore deletion.
+    expect(result.deleted).toBe(1);
+    expect(await starStore.count()).toBe(1);
   });
 
   it('cold sync (no prior store) deletes nothing — regression guard', async () => {

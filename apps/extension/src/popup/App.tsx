@@ -352,12 +352,40 @@ export function App(): JSX.Element {
     }
 
     try {
-      const { starStore, cursorStore } = await getStores();
+      const { starStore, cursorStore, vectorStore } = await getStores();
       const client = createGithubClient({
         token: pat,
         userAgent: '@starkit/extension',
       });
-      const result = await syncStarsWithStore(client, { starStore, cursorStore });
+      const result = await syncStarsWithStore(
+        client,
+        { starStore, cursorStore },
+        {
+          // R33 蓝军 CRITICAL #1.2 fix: when sync detects un-stars, also
+          // remove the corresponding vector rows. v1 left orphans
+          // (star:N + code:N:path:idx) — they bloated IDB and the
+          // indexedCount gauge lied. The rehydrate path at App.tsx:936
+          // already filtered hits with null star so search results
+          // weren't visibly wrong; this fix prevents the leak at root.
+          onUnstar: async (deletedIds: ReadonlyArray<number>) => {
+            const idSet = new Set(deletedIds);
+            // star:N rows have predictable ids — delete directly.
+            for (const id of deletedIds) {
+              await vectorStore.delete(`star:${id}`);
+            }
+            // code:N:path:idx — variable suffix per repo. ONE list()
+            // pass + per-row regex filter (O(N+M), not O(N×M)).
+            const allRows = await vectorStore.list();
+            for (const row of allRows) {
+              if (!row.id.startsWith('code:')) continue;
+              const match = /^code:(\d+):/.exec(row.id);
+              if (match && idSet.has(Number(match[1]))) {
+                await vectorStore.delete(row.id);
+              }
+            }
+          },
+        }
+      );
       const [top, cnt, cur] = await Promise.all([
         starStore.list({ limit: 10 }),
         starStore.count(),

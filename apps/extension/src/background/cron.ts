@@ -23,6 +23,7 @@ import {
   type StarKitDB,
   type SyncWithStoreResult,
 } from '@starkit/core';
+import { IndexedDBVectorStore } from '@starkit/vector';
 import { KV_KEY_PAT } from '../shared/keys.js';
 import { releaseSyncLock, tryAcquireSyncLock } from '../shared/lock.js';
 
@@ -95,12 +96,36 @@ export async function runScheduledSync(
   try {
     const starStore = new IndexedDBStarStore(db);
     const cursorStore = new IndexedDBCursorStore(db);
+    const vectorStore = new IndexedDBVectorStore(db);
     const client = createGithubClient({
       token: pat,
       userAgent: '@starkit/extension(cron)',
     });
 
-    const syncOpts: { signal?: AbortSignal } = {};
+    // R33 蓝军 CRITICAL #1.2: wire onUnstar so background sync also
+    // cleans orphan vectors. Without this, cron-triggered un-stars
+    // accumulate orphans even though the popup-triggered path now
+    // cleans them (App.tsx onSync). Same code path; copy-paste avoided
+    // by sharing the cleanup logic if a v2 refactor extracts a helper.
+    const syncOpts: {
+      signal?: AbortSignal;
+      onUnstar?: (deletedIds: ReadonlyArray<number>) => Promise<void>;
+    } = {
+      onUnstar: async (deletedIds) => {
+        const idSet = new Set(deletedIds);
+        for (const id of deletedIds) {
+          await vectorStore.delete(`star:${id}`);
+        }
+        const allRows = await vectorStore.list();
+        for (const row of allRows) {
+          if (!row.id.startsWith('code:')) continue;
+          const match = /^code:(\d+):/.exec(row.id);
+          if (match && idSet.has(Number(match[1]))) {
+            await vectorStore.delete(row.id);
+          }
+        }
+      },
+    };
     if (opts.signal !== undefined) syncOpts.signal = opts.signal;
 
     try {
