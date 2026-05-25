@@ -25,6 +25,8 @@
     "clean": "pnpm -r exec rm -rf dist build node_modules .turbo",
     "extension:dev": "pnpm --filter @starkit/extension dev",
     "extension:build": "pnpm --filter @starkit/extension build",
+    "extension:icons": "python scripts/generate-icons.py",
+    "extension:package": "node scripts/package-extension.mjs",
     "obsidian:dev": "pnpm --filter @starkit/obsidian dev",
     "obsidian:build": "pnpm --filter @starkit/obsidian build"
   },
