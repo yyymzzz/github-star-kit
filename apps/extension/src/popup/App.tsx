@@ -195,6 +195,13 @@ export function App(): JSX.Element {
   // The popup-lifetime hot index. Pre-filled from IDB at mount; mutated by
   // every embed pass (dual-upsert) so it stays in sync without re-loading.
   const memVecRef = useRef<MemoryVectorStore | null>(null);
+  // R37 蓝军 borrow from favbox: CmdK / Ctrl+K focuses the search bar.
+  // Saved in a ref because the input only renders when `canSearch` is
+  // true; we want the hotkey listener attached at mount regardless and
+  // gracefully no-op when the input isn't currently in the DOM.
+  // RefObject<HTMLInputElement> (no `| null` in generic) matches
+  // React's `input ref` prop type.
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Generation counter for digest invocations. Incremented at the start
   // of every onShowDigest; the async summary block writes back only when
@@ -1015,6 +1022,40 @@ export function App(): JSX.Element {
     if (query.trim() === '') setSearchResults([]);
   }, [query]);
 
+  // R37 favbox-inspired hotkey: Cmd+K (macOS) / Ctrl+K (others) focuses
+  // the search bar. Safe to preventDefault inside a Chrome extension
+  // popup — the popup is its own window context, not the browser
+  // chrome, so we're not stealing the address-bar hotkey users rely
+  // on outside. Also handles '/' as a secondary trigger (GitHub-style)
+  // but only when no input is already focused, to avoid intercepting
+  // typing.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const cmdK =
+        (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        (e.key === 'k' || e.key === 'K');
+      const target = e.target as HTMLElement | null;
+      const isTyping =
+        target !== null &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable);
+      const slashAlone = e.key === '/' && !cmdK && !isTyping;
+      if (cmdK || slashAlone) {
+        const input = searchInputRef.current;
+        if (input !== null) {
+          e.preventDefault();
+          input.focus();
+          input.select();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   // ─── Derived view state ───────────────────────────────────────────────
   const indexCoverage = useMemo(() => {
     if (knownCount === 0) return null;
@@ -1101,6 +1142,7 @@ export function App(): JSX.Element {
       {canSearch && (
         <div style={styles.searchRow}>
           <input
+            ref={searchInputRef}
             type="search"
             placeholder={
               deepIndexedCount > 0
@@ -1113,6 +1155,7 @@ export function App(): JSX.Element {
               if (e.key === 'Enter') void onSearch();
             }}
             style={styles.searchInput}
+            aria-keyshortcuts="Control+K Meta+K"
           />
           <button
             type="button"

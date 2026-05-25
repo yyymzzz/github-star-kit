@@ -139,6 +139,13 @@ export function Manage(): JSX.Element {
   // unmount to avoid "setState on unmounted component" warning when
   // user navigates away mid-timeout.
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // R37 favbox-inspired: hotkey-focused search input. Passed down to
+  // FilterBar via optional prop so the global keydown listener can
+  // focus the input regardless of where it lives in the DOM tree.
+  // React's `input ref` expects RefObject<HTMLInputElement> (NOT
+  // `<HTMLInputElement | null>`), so type the generic without null
+  // even though .current starts null at mount.
+  const searchInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     return () => {
       if (toastTimerRef.current !== null) {
@@ -291,6 +298,40 @@ export function Manage(): JSX.Element {
       window.removeEventListener('resize', onResize);
       if (rafId !== null) window.cancelAnimationFrame(rafId);
     };
+  }, []);
+
+  // R37 favbox-inspired Cmd+K / Ctrl+K / "/" hotkey to focus the search
+  // input. Same shape as popup App.tsx — extracted-by-copy because the
+  // helper is 20 lines and pulling it into a shared module would
+  // require passing the ref + onKey factory + DOM target conventions
+  // through a useImperativeHandle dance. Trade-off: 2 copies vs an
+  // abstraction tax for a 20-line function. Revisit if a 3rd surface
+  // (options page?) needs it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const cmdK =
+        (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        (e.key === 'k' || e.key === 'K');
+      const target = e.target as HTMLElement | null;
+      const isTyping =
+        target !== null &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable);
+      const slashAlone = e.key === '/' && !cmdK && !isTyping;
+      if (cmdK || slashAlone) {
+        const input = searchInputRef.current;
+        if (input !== null) {
+          e.preventDefault();
+          input.focus();
+          input.select();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   // ─── Language facets — computed ONCE per data load ────────────────────
@@ -742,6 +783,7 @@ export function Manage(): JSX.Element {
             onSortOrderChange={setSortOrder}
             viewMode={viewMode}
             onViewModeChange={setViewMode}
+            searchInputRef={searchInputRef}
           />
 
           {visible.length === 0 ? (
@@ -805,16 +847,23 @@ function FilterBar(props: {
   readonly onSortOrderChange: (v: SortOrder) => void;
   readonly viewMode: ViewMode;
   readonly onViewModeChange: (v: ViewMode) => void;
+  // R37 favbox-inspired: parent passes a ref so the global CmdK / Ctrl+K
+  // hotkey can focus this search input. Optional so callers without a
+  // hotkey listener don't need to wire it. RefObject<HTMLInputElement>
+  // matches React's `input ref` type — see useRef declaration.
+  readonly searchInputRef?: React.RefObject<HTMLInputElement>;
 }): JSX.Element {
   const { t } = useI18n();
   return (
     <section style={styles.filterBar}>
       <input
+        ref={props.searchInputRef}
         type="search"
         placeholder={t('manage.searchPlaceholder')}
         value={props.filters.searchText}
         onChange={(e) => props.onFilterChange('searchText', e.target.value)}
         style={styles.searchInput}
+        aria-keyshortcuts="Control+K Meta+K"
       />
       <div style={styles.filterRow}>
         <label style={styles.filterLabel}>
