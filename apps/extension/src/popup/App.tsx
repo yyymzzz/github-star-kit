@@ -196,6 +196,16 @@ export function App(): JSX.Element {
   const [searchFilter, setSearchFilter] = useState<'all' | 'star' | 'code'>(
     'all'
   );
+  // R40 audit MAJOR close: user-driven AbortController. ONE shared
+  // controller per active long-running op (translate / autotag /
+  // deep-index). The 3 ops are mutually exclusive in the UI (buttons
+  // disable each other), so sharing the state is safe. Cancel button
+  // renders when activeAbort !== null. AbortError thrown by
+  // orchestrators is caught + treated as user cancel (subtle notice,
+  // not error banner) via the catch branch in each handler.
+  const [activeAbort, setActiveAbort] = useState<AbortController | null>(
+    null
+  );
   const [digest, setDigest] = useState<DigestResult | null>(null);
 
   // The popup-lifetime hot index. Pre-filled from IDB at mount; mutated by
@@ -535,6 +545,12 @@ export function App(): JSX.Element {
     setTranslateState('translating');
     setTranslateProgress({ done: 0, total: untranslatedCount });
     setError(null);
+    // R40: user can cancel mid-batch. Translate runs for minutes on
+    // large libraries — without cancel, the user has to wait or
+    // forcibly close popup (which doesn't actually kill in-flight
+    // fetches inside the orchestrator's worker pool).
+    const abortCtrl = new AbortController();
+    setActiveAbort(abortCtrl);
 
     try {
       const { starStore } = await getStores();
@@ -542,6 +558,7 @@ export function App(): JSX.Element {
 
       const translateResult = await translateStars({
         starStore,
+        signal: abortCtrl.signal,
         chat: (system, user, signal) =>
           provider
             .chat({
@@ -641,9 +658,16 @@ export function App(): JSX.Element {
       setAllStarsForTrCount(all);
       setTranslateProgress(null);
     } catch (err) {
-      setError(localizeError(err, t));
+      // R40: AbortError is user-cancel → subtle notice, not red banner.
+      // Any other Error → existing localized banner path.
+      if (err instanceof Error && err.name === 'AbortError') {
+        setError(t('common.cancelled'));
+      } else {
+        setError(localizeError(err, t));
+      }
     } finally {
       setTranslateState('idle');
+      setActiveAbort(null);
     }
   }, [aiKey, aiProvider, locale, translateState, untranslatedCount, allStarsForTrCount]);
 
@@ -653,6 +677,9 @@ export function App(): JSX.Element {
     setTagState('tagging');
     setTagProgress({ done: 0, total: untaggedCount });
     setError(null);
+    // R40: user cancel for long autotag runs.
+    const abortCtrl = new AbortController();
+    setActiveAbort(abortCtrl);
 
     try {
       const { starStore } = await getStores();
@@ -660,6 +687,7 @@ export function App(): JSX.Element {
 
       const tagResult = await tagStars({
         starStore,
+        signal: abortCtrl.signal,
         // Adapter: AIProvider.chat takes a ChatRequest object; ChatBatchFn
         // wants (system, user, signal) positional.
         chat: (system, user, signal) =>
@@ -710,9 +738,14 @@ export function App(): JSX.Element {
         );
       }
     } catch (err) {
-      setError(localizeError(err, t));
+      if (err instanceof Error && err.name === 'AbortError') {
+        setError(t('common.cancelled'));
+      } else {
+        setError(localizeError(err, t));
+      }
     } finally {
       setTagState('idle');
+      setActiveAbort(null);
     }
   }, [aiKey, aiProvider, tagState, untaggedCount]);
 
@@ -721,6 +754,11 @@ export function App(): JSX.Element {
     if (!pat || !aiKey || !aiProvider || deepIndexState === 'indexing') return;
     setDeepIndexState('indexing');
     setError(null);
+    // R40: cancel for deep-index loop. The for-loop in this handler
+    // does N indexRepoCode calls; each accepts signal. AbortError
+    // bubbles up to the catch below which treats it as user cancel.
+    const abortCtrl = new AbortController();
+    setActiveAbort(abortCtrl);
 
     try {
       const { starStore, vectorStore } = await getStores();
@@ -766,6 +804,7 @@ export function App(): JSX.Element {
         const result = await indexRepoCode({
           starStore,
           repoId: star.id,
+          signal: abortCtrl.signal,
           fetchSource: (o, r, signal) =>
             fetchRepoSource({
               client: githubClient,
@@ -851,9 +890,14 @@ export function App(): JSX.Element {
       // same reason embed/sync do (R10 蓝军 fix C1 pattern).
       setDigest(null);
     } catch (err) {
-      setError(localizeError(err, t));
+      if (err instanceof Error && err.name === 'AbortError') {
+        setError(t('common.cancelled'));
+      } else {
+        setError(localizeError(err, t));
+      }
     } finally {
       setDeepIndexState('idle');
+      setActiveAbort(null);
     }
   }, [pat, aiKey, aiProvider, deepIndexState]);
 
@@ -1223,12 +1267,27 @@ export function App(): JSX.Element {
       {/* Translate progress notice — shown even when the button row is
        *  collapsed, so the in-flight pass stays visible. */}
       {translateState === 'translating' && translateProgress && (
-        <div style={styles.notice}>
-          🌐{' '}
-          {t('translate.translating', {
-            done: translateProgress.done,
-            total: translateProgress.total,
-          })}
+        <div style={styles.noticeWithCancel}>
+          <span>
+            🌐{' '}
+            {t('translate.translating', {
+              done: translateProgress.done,
+              total: translateProgress.total,
+            })}
+          </span>
+          {/* R40 Cancel button — minimal text-only link to keep the
+           *  progress notice compact. Disabled briefly post-click
+           *  so the user can't double-abort while the controller's
+           *  abort() ripples through workers. */}
+          {activeAbort && (
+            <button
+              type="button"
+              onClick={() => activeAbort.abort()}
+              style={styles.cancelLinkButton}
+            >
+              {t('common.cancel')}
+            </button>
+          )}
         </div>
       )}
 
@@ -1280,21 +1339,43 @@ export function App(): JSX.Element {
       )}
 
       {deepIndexState === 'indexing' && deepIndexProgress && (
-        <div style={styles.notice}>
-          {t('deepIndex.progress', {
-            repo: deepIndexProgress.repo,
-            done: deepIndexProgress.done + 1,
-            total: deepIndexProgress.total,
-          })}
+        <div style={styles.noticeWithCancel}>
+          <span>
+            {t('deepIndex.progress', {
+              repo: deepIndexProgress.repo,
+              done: deepIndexProgress.done + 1,
+              total: deepIndexProgress.total,
+            })}
+          </span>
+          {activeAbort && (
+            <button
+              type="button"
+              onClick={() => activeAbort.abort()}
+              style={styles.cancelLinkButton}
+            >
+              {t('common.cancel')}
+            </button>
+          )}
         </div>
       )}
 
       {tagState === 'tagging' && tagProgress && (
-        <div style={styles.notice}>
-          {t('tag.taggingProgress', {
-            done: tagProgress.done,
-            total: tagProgress.total,
-          })}
+        <div style={styles.noticeWithCancel}>
+          <span>
+            {t('tag.taggingProgress', {
+              done: tagProgress.done,
+              total: tagProgress.total,
+            })}
+          </span>
+          {activeAbort && (
+            <button
+              type="button"
+              onClick={() => activeAbort.abort()}
+              style={styles.cancelLinkButton}
+            >
+              {t('common.cancel')}
+            </button>
+          )}
         </div>
       )}
 
@@ -2034,6 +2115,30 @@ const styles = {
     background: 'rgba(34, 197, 94, 0.1)',
     color: 'rgb(22, 101, 52)',
     borderRadius: '6px',
+  },
+  // R40: notice with inline Cancel button. Same green tone, but flexbox
+  // for right-aligned cancel link.
+  noticeWithCancel: {
+    fontSize: '11px',
+    padding: '6px 10px',
+    background: 'rgba(34, 197, 94, 0.1)',
+    color: 'rgb(22, 101, 52)',
+    borderRadius: '6px',
+    display: 'flex',
+    justifyContent: 'space-between' as const,
+    alignItems: 'center' as const,
+    gap: '8px',
+  },
+  cancelLinkButton: {
+    fontSize: '11px',
+    padding: '2px 6px',
+    background: 'transparent',
+    color: 'rgb(153, 27, 27)',
+    border: '1px solid rgba(239, 68, 68, 0.3)',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontWeight: 500,
+    flexShrink: 0,
   },
   errorBanner: {
     fontSize: '12px',

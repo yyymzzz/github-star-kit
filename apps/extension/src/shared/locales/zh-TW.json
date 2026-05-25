@@ -4,7 +4,9 @@
     "loading": "載入中…",
     "neverSynced": "尚未同步",
     "starred": "收藏於",
-    "pushed": "推送於"
+    "pushed": "推送於",
+    "cancel": "取消",
+    "cancelled": "已取消。"
   },
   "header": {
     "appName": "GitHub Star Kit",

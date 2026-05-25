@@ -4,7 +4,9 @@
     "loading": "loading…",
     "neverSynced": "never synced",
     "starred": "starred",
-    "pushed": "pushed"
+    "pushed": "pushed",
+    "cancel": "Cancel",
+    "cancelled": "Cancelled."
   },
   "header": {
     "appName": "GitHub Star Kit",
