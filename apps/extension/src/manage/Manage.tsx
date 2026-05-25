@@ -74,7 +74,20 @@ const DEFAULT_FILTERS: Filters = {
 /** Row height — tall enough for repo name + 2-line description + meta +
  *  tag chips + action button row. Bumped slightly from MVP to fit the
  *  per-row Deep-index button without truncation. */
-const ROW_HEIGHT = 140;
+// R25 card-grid layout. Each FixedSizeList row holds N cards arranged in
+// CSS grid; N is computed from container width so the layout reflows on
+// resize. Picking targets that align with manage's max-width 960px shell:
+//   ≥1080px container → 3 cols (cap)
+//    720- 1079        → 2 cols
+//    < 720            → 1 col (mobile / popup-narrow)
+// CARD_WIDTH_TARGET is the minimum per-card width before reflowing down a
+// column count. Math.floor((W + gap) / (CARD_WIDTH_TARGET + gap)) gives
+// us the column count that keeps every card ≥ target without leaving
+// awkward trailing whitespace.
+const CARD_WIDTH_TARGET = 320;
+const CARD_HEIGHT = 200;
+const GRID_GAP = 12;
+const ROW_HEIGHT = CARD_HEIGHT + GRID_GAP;
 
 /** Max tag chips to surface in the filter bar. Limits visual sprawl on
  *  power-user accounts whose auto-tag run produced 100+ distinct tags;
@@ -123,6 +136,19 @@ export function Manage(): JSX.Element {
   const [listHeight, setListHeight] = useState<number>(
     typeof window !== 'undefined' ? window.innerHeight - 280 : 600
   );
+  // R25 card-grid: container width drives columnsPerRow. The shell has
+  // max-width 960px (see styles.shell) with 20px side padding, so
+  // effective inner width = min(window.innerWidth, 960) - 40.
+  const [containerWidth, setContainerWidth] = useState<number>(() => {
+    if (typeof window === 'undefined') return 920;
+    return Math.min(window.innerWidth, 960) - 40;
+  });
+  const columnsPerRow = useMemo(() => {
+    return Math.max(
+      1,
+      Math.floor((containerWidth + GRID_GAP) / (CARD_WIDTH_TARGET + GRID_GAP))
+    );
+  }, [containerWidth]);
 
   // ─── Initial load ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -174,9 +200,16 @@ export function Manage(): JSX.Element {
     };
   }, []);
 
-  // ─── List-height recompute on window resize ───────────────────────────
+  // ─── List-height + container-width recompute on window resize ────────
+  // R25: also tracks horizontal width for the responsive card grid.
+  // Both reads happen in the same listener so only one rAF tick per
+  // resize event, and both states settle together (avoids one-frame
+  // layout thrash where columnsPerRow updates before listHeight).
   useEffect(() => {
-    const onResize = () => setListHeight(window.innerHeight - 280);
+    const onResize = () => {
+      setListHeight(window.innerHeight - 280);
+      setContainerWidth(Math.min(window.innerWidth, 960) - 40);
+    };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
@@ -556,17 +589,21 @@ export function Manage(): JSX.Element {
             <FixedSizeList
               height={listHeight}
               width="100%"
-              itemCount={visible.length}
+              // R25 card-grid: items are ROWS of `columnsPerRow` cards,
+              // so total item count is ceil(stars / cols). Each list row
+              // renders columnsPerRow Cards via CSS grid.
+              itemCount={Math.ceil(visible.length / columnsPerRow)}
               itemSize={ROW_HEIGHT}
-              overscanCount={6}
+              overscanCount={3}
               itemData={{
                 stars: visible,
                 perRowState,
                 onDeepIndex: onPerRowDeepIndex,
                 canDeepIndex: aiKey !== '' && pat !== '',
+                columnsPerRow,
               }}
             >
-              {Row}
+              {GridRow}
             </FixedSizeList>
           )}
         </>
@@ -713,98 +750,150 @@ function FilterBar(props: {
   );
 }
 
-interface RowData {
+interface GridData {
   readonly stars: ReadonlyArray<StarredRepo>;
   readonly perRowState: ReadonlyMap<number, 'indexing'>;
   readonly onDeepIndex: (star: StarredRepo) => void;
   readonly canDeepIndex: boolean;
+  readonly columnsPerRow: number;
 }
 
-/** Single row inside react-window's FixedSizeList. */
-function Row(props: {
+/**
+ * R25 card-grid: a single "row" inside react-window's FixedSizeList that
+ * holds `columnsPerRow` Cards in a CSS grid. The previous v0.3 version
+ * rendered one full-width card per virtual row, which wasted ~70% of the
+ * 960px shell on wide screens. Multi-col reflows from 1 → 2 → 3 cards
+ * based on container width without changing virtualization perf (item
+ * count drops from N to ceil(N/cols) so virtualized DOM stays bounded).
+ *
+ * Layout note: the inline `style` prop comes from react-window with
+ * `position: absolute; top/left/width/height` for placement. We spread
+ * it first then add `display: grid` + padding for the inner layout —
+ * positioning props remain intact because we don't redefine them.
+ */
+function GridRow(props: {
   readonly index: number;
   readonly style: React.CSSProperties;
-  readonly data: RowData;
+  readonly data: GridData;
 }): JSX.Element {
-  const star = props.data.stars[props.index]!;
-  const indexing = props.data.perRowState.has(star.id);
+  const { index, style, data } = props;
+  const start = index * data.columnsPerRow;
+  const end = Math.min(start + data.columnsPerRow, data.stars.length);
+  const slice = data.stars.slice(start, end);
+  return (
+    <div
+      style={{
+        ...style,
+        display: 'grid',
+        gridTemplateColumns: `repeat(${data.columnsPerRow}, minmax(0, 1fr))`,
+        gap: `${GRID_GAP}px`,
+        padding: `0 4px ${GRID_GAP}px 4px`,
+      }}
+    >
+      {slice.map((star) => (
+        <Card
+          key={star.id}
+          star={star}
+          indexing={data.perRowState.has(star.id)}
+          canDeepIndex={data.canDeepIndex}
+          onDeepIndex={data.onDeepIndex}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Single repo card. Extracted from the old Row component so GridRow can
+ * compose N of them. Same render contract: name + lang/stars on top,
+ * description (2-line clamp), AI tags chips, footer meta + Deep-index
+ * button. Locale-aware via useI18n — descriptionI18n / aiTagsI18n
+ * fallbacks preserved from R17.
+ */
+function Card(props: {
+  readonly star: StarredRepo;
+  readonly indexing: boolean;
+  readonly canDeepIndex: boolean;
+  readonly onDeepIndex: (star: StarredRepo) => void;
+}): JSX.Element {
+  const { star, indexing, canDeepIndex, onDeepIndex } = props;
   const { t, locale } = useI18n();
-  // Same Phase 6 localized-description fallback as popup's RepoLink:
-  // prefer cached translation for the active locale, fall back to original.
   const displayDesc =
     locale !== 'en' && star.descriptionI18n?.[locale]
       ? star.descriptionI18n[locale]!
       : star.description;
+  // R17 蓝军 fix B: localized tags fallback.
+  const localizedRaw =
+    locale !== 'en' && star.aiTagsI18n?.[locale] ? star.aiTagsI18n[locale] : null;
+  const displayTags =
+    localizedRaw && localizedRaw.length > 0
+      ? localizedRaw
+          .split(/[,\n]/)
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0)
+      : star.aiTags;
   return (
-    <div style={{ ...props.style, padding: '0 4px' }}>
-      <div style={styles.rowCard}>
-        <div style={styles.rowHeader}>
-          <a
-            href={star.htmlUrl}
-            target="_blank"
-            rel="noreferrer"
-            style={styles.repoName}
-            title={star.description ?? undefined}
-          >
-            {star.fullName}
-          </a>
-          <div style={styles.rowHeaderRight}>
-            {star.language && <span style={styles.lang}>{star.language}</span>}
-            <span style={styles.stars}>★ {star.stargazersCount.toLocaleString()}</span>
-          </div>
-        </div>
-        {displayDesc && <p style={styles.rowDesc}>{displayDesc}</p>}
-        <div style={styles.rowMiddle}>
-          {(() => {
-            // R17 蓝军 fix B: same aiTags localization fallback as popup —
-            // prefer cached translation, fall back to English aiTags.
-            const localizedRaw =
-              locale !== 'en' && star.aiTagsI18n?.[locale]
-                ? star.aiTagsI18n[locale]
-                : null;
-            const displayTags =
-              localizedRaw && localizedRaw.length > 0
-                ? localizedRaw.split(/[,\n]/).map((s) => s.trim()).filter((s) => s.length > 0)
-                : star.aiTags;
-            if (displayTags.length === 0) return null;
-            return (
-              <div style={styles.tagRow}>
-                {displayTags.slice(0, 5).map((tg) => (
-                  <span key={tg} style={styles.tagChipDisplay}>
-                    {tg}
-                  </span>
-                ))}
-              </div>
-            );
-          })()}
-        </div>
-        <div style={styles.rowFooter}>
-          <span style={styles.rowMeta}>
-            starred {formatRelativeTime(star.starredAt)}
-            {star.pushedAt && ` · pushed ${formatRelativeTime(star.pushedAt)}`}
-            {star.archived && ' · archived'}
-            {star.isFork && ' · fork'}
+    <div style={styles.cardCard}>
+      <div style={styles.cardHeader}>
+        <a
+          href={star.htmlUrl}
+          target="_blank"
+          rel="noreferrer"
+          style={styles.repoName}
+          title={star.description ?? undefined}
+        >
+          {star.fullName}
+        </a>
+        <div style={styles.cardHeaderRight}>
+          {star.language && <span style={styles.lang}>{star.language}</span>}
+          <span style={styles.stars}>
+            ★ {star.stargazersCount.toLocaleString()}
           </span>
-          {star.deepIndexed ? (
-            <span style={styles.deepIndexedBadge}>{t('deepIndex.rowDone')}</span>
-          ) : (
-            <button
-              type="button"
-              onClick={() => props.data.onDeepIndex(star)}
-              disabled={!props.data.canDeepIndex || indexing}
-              style={styles.deepIndexButton}
-              title={
-                !props.data.canDeepIndex
-                  ? t('deepIndex.rowTitleDisabled')
-                  : indexing
-                    ? t('deepIndex.rowTitleInProgress')
-                    : t('deepIndex.rowTitleEnabled')
-              }
-            >
-              {indexing ? t('deepIndex.rowIndexing') : t('deepIndex.rowButton')}
-            </button>
-          )}
         </div>
+      </div>
+      {displayDesc && <p style={styles.cardDesc}>{displayDesc}</p>}
+      <div style={styles.cardMiddle}>
+        {displayTags.length > 0 && (
+          <div style={styles.tagRow}>
+            {displayTags.slice(0, 4).map((tg) => (
+              <span key={tg} style={styles.tagChipDisplay}>
+                {tg}
+              </span>
+            ))}
+            {displayTags.length > 4 && (
+              <span style={styles.tagChipOverflow}>
+                +{displayTags.length - 4}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+      <div style={styles.cardFooter}>
+        <span style={styles.rowMeta}>
+          {formatRelativeTime(star.starredAt)}
+          {star.pushedAt && ` · ${formatRelativeTime(star.pushedAt)}`}
+          {star.archived && ' · archived'}
+          {star.isFork && ' · fork'}
+        </span>
+        {star.deepIndexed ? (
+          <span style={styles.deepIndexedBadge}>{t('deepIndex.rowDone')}</span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onDeepIndex(star)}
+            disabled={!canDeepIndex || indexing}
+            style={styles.deepIndexButton}
+            title={
+              !canDeepIndex
+                ? t('deepIndex.rowTitleDisabled')
+                : indexing
+                  ? t('deepIndex.rowTitleInProgress')
+                  : t('deepIndex.rowTitleEnabled')
+            }
+          >
+            {indexing ? t('deepIndex.rowIndexing') : t('deepIndex.rowButton')}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -978,59 +1067,68 @@ const styles = {
     opacity: 0.65,
     margin: '8px 0 0',
   },
-  rowCard: {
-    height: `${ROW_HEIGHT - 8}px`,
-    padding: '10px 14px',
-    border: '1px solid rgba(127, 127, 127, 0.15)',
-    borderRadius: '6px',
+  // R25 card-grid: each card occupies a CSS grid cell sized by GridRow's
+  // template. Height is the grid-row's full track height (= ROW_HEIGHT
+  // minus the GRID_GAP padding-bottom of the row container).
+  cardCard: {
+    height: `${CARD_HEIGHT}px`,
+    padding: '12px 14px',
+    background: 'rgba(127, 127, 127, 0.03)',
+    border: '1px solid rgba(127, 127, 127, 0.18)',
+    borderRadius: '8px',
+    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
     display: 'flex',
     flexDirection: 'column' as const,
-    gap: '4px',
+    gap: '6px',
     overflow: 'hidden' as const,
+    transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
   },
-  rowHeader: {
+  cardHeader: {
     display: 'flex',
     justifyContent: 'space-between' as const,
     alignItems: 'baseline' as const,
     gap: '8px',
   },
-  rowHeaderRight: {
+  cardHeaderRight: {
     display: 'flex',
-    gap: '10px',
+    gap: '8px',
     fontSize: '11px',
     opacity: 0.7,
     flexShrink: 0,
   },
   repoName: {
     fontWeight: 600,
-    fontSize: '14px',
+    fontSize: '13.5px',
     color: 'inherit',
     textDecoration: 'none',
     overflow: 'hidden' as const,
     textOverflow: 'ellipsis' as const,
     whiteSpace: 'nowrap' as const,
+    minWidth: 0,
+    flex: 1,
   },
-  lang: { fontSize: '11px' },
-  stars: { fontSize: '11px', fontFamily: 'ui-monospace, monospace' },
-  rowDesc: {
+  lang: { fontSize: '10.5px' },
+  stars: { fontSize: '10.5px', fontFamily: 'ui-monospace, monospace' },
+  cardDesc: {
     margin: 0,
     fontSize: '12px',
-    opacity: 0.8,
+    opacity: 0.78,
     lineHeight: 1.4,
     overflow: 'hidden' as const,
     display: '-webkit-box' as const,
     WebkitBoxOrient: 'vertical' as const,
-    WebkitLineClamp: 2,
+    WebkitLineClamp: 3,
   },
-  rowMiddle: {
-    minHeight: '20px',
+  cardMiddle: {
+    minHeight: '18px',
   },
-  rowFooter: {
+  cardFooter: {
     display: 'flex',
     justifyContent: 'space-between' as const,
     alignItems: 'center' as const,
     gap: '8px',
     marginTop: 'auto',
+    paddingTop: '4px',
   },
   tagRow: {
     display: 'flex',
@@ -1043,6 +1141,19 @@ const styles = {
     padding: '1px 6px',
     background: 'rgba(99, 102, 241, 0.12)',
     color: 'rgb(67, 56, 202)',
+    borderRadius: '10px',
+    fontWeight: 500,
+  },
+  // R25 card-grid: shown when a card has >4 aiTags, so the visible
+  // count stays predictable for the fixed CARD_HEIGHT. Neutral color
+  // distinguishes it from real tags (not clickable, just an overflow
+  // indicator — full tag list still in DOM via title attribute if
+  // future spec wants it).
+  tagChipOverflow: {
+    fontSize: '10px',
+    padding: '1px 6px',
+    background: 'rgba(127, 127, 127, 0.12)',
+    color: 'rgb(75, 85, 99)',
     borderRadius: '10px',
     fontWeight: 500,
   },
