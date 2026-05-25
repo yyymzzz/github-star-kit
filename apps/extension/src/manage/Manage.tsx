@@ -52,6 +52,18 @@ import {
 import { AI_PRESETS, DEFAULT_AI_PRESET, type AiPresetId } from '../shared/ai-presets.js';
 import { localizeError } from '../shared/error-i18n.js';
 import { useI18n } from '../shared/i18n.js';
+import { withSyncLock } from '../shared/lock.js';
+
+/**
+ * R34 蓝军 CRITICAL #1.1 — owner id the manage page identifies itself
+ * by when acquiring the cross-context sync lock. Distinct from popup
+ * + cron owner ids so debug logs can attribute lock contention.
+ * Bulk AI writers (translate, per-row deep-index) hold the lock for
+ * their full duration so a concurrent cron sync skips cleanly (per
+ * v1 trade-off: long translate blocks one cron cycle, recovers on
+ * next 6h tick).
+ */
+const MANAGE_OWNER_ID = 'manage-tab';
 
 type SortBy = 'starredAt' | 'pushedAt' | 'stargazersCount' | 'relevance';
 type SortOrder = 'asc' | 'desc';
@@ -384,6 +396,16 @@ export function Manage(): JSX.Element {
     setError(null);
 
     try {
+      // R34 蓝军 CRITICAL #1.1: hold the sync lock for the full translate
+      // run. The orchestrator's per-repo `updateStar` callback does
+      // read-modify-write on starStore; a concurrent cron sync's
+      // `mergeLocalFields` does the same and would last-write-wins
+      // clobber the translation. Holding the lock for the whole batch
+      // serializes correctly — cron sees the lock and skips this 6h
+      // tick (its next 6h tick is plenty fresh). If the lock is held
+      // by sync when user clicks Translate, surface the conflict via
+      // the existing sync.conflict i18n key.
+      const lockOutcome = await withSyncLock(MANAGE_OWNER_ID, async () => {
       const { starStore } = await getStores();
       const preset = AI_PRESETS[aiProvider];
       const provider = new OpenAICompatibleProvider({
@@ -478,6 +500,12 @@ export function Manage(): JSX.Element {
           })
         );
       }
+      });
+      // R34: lock was held by another sync source (popup or cron). Tell
+      // the user instead of silently dropping the click.
+      if (!lockOutcome.ran) {
+        setError(t('sync.conflict'));
+      }
     } catch (err) {
       setError(localizeError(err, t));
     } finally {
@@ -496,6 +524,13 @@ export function Manage(): JSX.Element {
       setPerRowState((m) => new Map(m).set(star.id, 'indexing'));
 
       try {
+        // R34 蓝军 CRITICAL #1.1: same sync-lock discipline as bulk
+        // translate. Per-row deep-index also does read-modify-write
+        // (deepIndexed=true) at the end — without the lock, a concurrent
+        // cron sync's mergeLocalFields could clobber the deepIndexed
+        // flag (or vice versa, this write could clobber sync's fresh
+        // GitHub fields). Lock for the whole indexRepoCode + write.
+        const lockOutcome = await withSyncLock(MANAGE_OWNER_ID, async () => {
         const { starStore, vectorStore } = await getStores();
         const preset = AI_PRESETS[aiProvider];
         const provider = new OpenAICompatibleProvider({
@@ -569,6 +604,11 @@ export function Manage(): JSX.Element {
         // else: star vanished (user un-starred during the run); do not
         // synthesize from the stale closure. Caller's allStars will
         // reflect the un-star on next sync — no UI inconsistency.
+        });
+        // R34: lock held by another sync source. Surface the conflict.
+        if (!lockOutcome.ran) {
+          setError(t('sync.conflict'));
+        }
       } catch (err) {
         setError(localizeError(err, t));
       } finally {
