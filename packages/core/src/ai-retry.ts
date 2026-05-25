@@ -129,3 +129,80 @@ export async function callWithRetry<T>(
   // fallback for the type system + a bug-detection canary.
   throw lastErr ?? new Error('callWithRetry: unreachable');
 }
+
+/**
+ * Priority-aware failure recorder shared across orchestrators.
+ *
+ * R28 蓝军 (R26 MAJOR #1 fan-out): translate + tag had a hand-rolled
+ * `aiErrorSeen` latch that prioritized AIError-shaped errors over weaker
+ * signals (parser-empty / empty tag list). The other 3 orchestrators
+ * (embed / code / digest) used bare "last-writer-wins", which meant a
+ * dim-mismatch generic Error could clobber a rate_limit AIError that
+ * landed first. Same data-quality bug, just hidden behind the technical
+ * abstraction.
+ *
+ * This factory returns a recorder + read-only getters. Callers wire the
+ * getters into their result object. Single source of truth for priority
+ * discipline — no more inline closures with subtly-different semantics
+ * per orchestrator.
+ *
+ * Priority tiers:
+ *   1. STRONG (AIError, identified by `.kind` string): always overwrites,
+ *      latches `aiErrorSeen=true` so weaker signals can't clobber.
+ *   2. MEDIUM (generic Error without `.kind`): overwrites weak signals
+ *      only if no AIError has landed yet.
+ *   3. WEAK (caller-supplied fallback string, e.g. parser-empty): writes
+ *      only if no stronger signal has been recorded and lastErrorMessage
+ *      is still null. Never overwrites.
+ *
+ * Single-threaded JS guarantees the read+write inside each tier is atomic
+ * per microtask (no real interleaving inside the synchronous block).
+ * Concurrent workers fighting over the recorder see deterministic
+ * priority — strong always wins, regardless of wall-clock order.
+ */
+export interface FailureRecorder {
+  /**
+   * Record a failure. `err` is the caught throwable (Error / non-Error /
+   * null). `fallbackMsg` is the description for the weak-signal path when
+   * `err === null` (e.g. parseResponse returned null → caller passes a
+   * "model returned only refusal text" string). Ignored otherwise.
+   */
+  readonly record: (err: unknown, fallbackMsg: string) => void;
+  /** Current lastErrorKind (AIError `.kind` from the strongest signal). */
+  readonly getKind: () => string | null;
+  /** Current lastErrorMessage. */
+  readonly getMessage: () => string | null;
+}
+
+export function createFailureRecorder(): FailureRecorder {
+  let kind: string | null = null;
+  let message: string | null = null;
+  let aiErrorSeen = false;
+  return {
+    record: (err: unknown, fallbackMsg: string): void => {
+      if (err instanceof Error) {
+        const errKind = (err as { kind?: unknown }).kind;
+        if (typeof errKind === 'string') {
+          // STRONG: AIError. Always wins, latches.
+          kind = errKind;
+          message = err.message;
+          aiErrorSeen = true;
+          return;
+        }
+        // MEDIUM: generic Error. Overwrites weak signals only if no
+        // AIError has landed yet (the latch decides).
+        if (!aiErrorSeen) message = err.message;
+        return;
+      }
+      // WEAK: parser-empty / dim-mismatch synthesized message. Only
+      // writes when no stronger signal has been recorded AND the
+      // message slot is still null (don't clobber even peer weak
+      // signals — first-weak-wins inside the weak tier).
+      if (!aiErrorSeen && message === null) {
+        message = fallbackMsg;
+      }
+    },
+    getKind: () => kind,
+    getMessage: () => message,
+  };
+}

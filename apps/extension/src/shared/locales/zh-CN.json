@@ -76,6 +76,7 @@
   "deepIndex": {
     "button": "🔧 深度索引前 {n} 个",
     "buttonMore": "🔧 再深度索引 {n} 个",
+    "buttonTooltip": "拉取 star 数最多的 {n} 个未深度索引仓库的源码并嵌入,让代码内容出现在语义搜索中。",
     "progress": "正在深度索引 {repo} ({done}/{total})…",
     "noNewRepos": "已覆盖按 star 数排名前 {n} 的仓库,无新仓库可深度索引。",
     "rowButton": "🔧 深度索引",

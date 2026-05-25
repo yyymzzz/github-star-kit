@@ -14,7 +14,7 @@
  * For a typical post-sync run where 95% of stars have unchanged
  * description / language / topics, that's a 20× cost reduction.
  */
-import { callWithRetry } from '../ai-retry.js';
+import { callWithRetry, createFailureRecorder } from '../ai-retry.js';
 import type { StarredRepo } from '../schema.js';
 import type { StarStore } from '../storage/types.js';
 import { buildStarEmbeddingInput, contentHash } from './text.js';
@@ -215,8 +215,11 @@ export async function embedStars(
   let batches = 0;
   let done = 0;
   const failedStarIds: number[] = [];
-  let lastErrorKind: string | null = null;
-  let lastErrorMessage: string | null = null;
+  // R28 蓝军 (R26 MAJOR #1 fan-out): shared priority-aware FailureRecorder.
+  // v1's bare "last-writer-wins" let a dim-mismatch generic Error clobber
+  // a concurrent rate_limit AIError — user saw the less actionable
+  // message. The recorder enforces AIError > generic Error > weak fallback.
+  const failure = createFailureRecorder();
 
   // Walk the star list in fixed-size batches. The "skip via contentHash"
   // filtering happens INSIDE each batch so a batch where every star is
@@ -340,13 +343,9 @@ export async function embedStars(
       // throw. All count as this batch failing.
       failed += toEmbed.length;
       for (const x of toEmbed) failedStarIds.push(x.star.id);
-      if (err instanceof Error) {
-        const kind = (err as { kind?: unknown }).kind;
-        if (typeof kind === 'string') lastErrorKind = kind;
-        lastErrorMessage = err.message;
-      } else {
-        lastErrorMessage = String(err);
-      }
+      // R28 fan-out: FailureRecorder handles all 3 tiers (AIError > Error
+      // > weak fallback). Non-Error throws fall to fallback path.
+      failure.record(err, String(err));
     }
 
     done += batchStars.length;
@@ -361,7 +360,7 @@ export async function embedStars(
     model,
     batches,
     failedStarIds,
-    lastErrorKind,
-    lastErrorMessage,
+    lastErrorKind: failure.getKind(),
+    lastErrorMessage: failure.getMessage(),
   };
 }

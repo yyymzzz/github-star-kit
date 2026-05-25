@@ -14,7 +14,7 @@
  * Callback-decoupled the same way: `@starkit/core` doesn't import
  * `@starkit/ai`. Caller wraps `AIProvider.chat` at the boundary.
  */
-import { callWithRetry } from '../ai-retry.js';
+import { callWithRetry, createFailureRecorder } from '../ai-retry.js';
 import type { StarredRepo } from '../schema.js';
 import type { StarStore } from '../storage/types.js';
 import { parseTagResponse } from '../tagging/text.js';
@@ -239,39 +239,13 @@ export async function translateStars(
   let totalOutputTokens = 0;
   let model: string | null = null;
   let done = skipped + noSource.length; // these contribute to progress count
-  // R20 蓝军 MAJOR #1: surface the last failure context so popup can
-  // render specific error (e.g. "rate_limit: 429 Too Many Requests")
-  // instead of a bare failed count. Race priority: AIError beats
-  // weaker signals (parser-empty) — see recordFailure().
-  let lastErrorKind: string | null = null;
-  let lastErrorMessage: string | null = null;
-  // recordFailure centralizes the priority discipline: AIError-shaped
-  // errors (have `.kind`) ALWAYS overwrite; weaker signals only write
-  // when no AIError has been seen yet. The `aiErrorSeen` latch makes
-  // this O(1) and concurrent-safe in JS's single-threaded model — once
-  // a real provider error landed, no parser-empty noise can clobber it.
-  let aiErrorSeen = false;
-  const recordFailure = (err: unknown, fallbackMsg: string): void => {
-    if (err instanceof Error) {
-      const kind = (err as { kind?: unknown }).kind;
-      if (typeof kind === 'string') {
-        // Strong signal — overwrite freely, mark latch.
-        lastErrorKind = kind;
-        lastErrorMessage = err.message;
-        aiErrorSeen = true;
-        return;
-      }
-      // Generic Error (no .kind). Treat as medium — overwrite weak
-      // parser-empty messages but not a previously-recorded AIError.
-      if (!aiErrorSeen) lastErrorMessage = err.message;
-      return;
-    }
-    // Weak signal (parser returned null, etc.) — only write if nothing
-    // stronger is recorded yet.
-    if (!aiErrorSeen && lastErrorMessage === null) {
-      lastErrorMessage = fallbackMsg;
-    }
-  };
+  // R20 蓝军 MAJOR #1 + R28 fan-out: use the shared FailureRecorder so
+  // priority discipline (AIError beats weak parser-empty signals) is
+  // identical across all 5 orchestrators. Previously translate + tag
+  // had hand-rolled latches; embed + code did "last-writer-wins" which
+  // could clobber a rate_limit AIError with a dim-mismatch generic
+  // Error. The shared helper closes that gap.
+  const failure = createFailureRecorder();
   opts.onProgress?.(done, total);
 
   const systemPrompt = buildTranslateSystemPrompt(opts.targetLocale, localeNativeName);
@@ -353,7 +327,7 @@ export async function translateStars(
           // only if no stronger AIError has been seen yet.
           failed += 1;
           failedStarIds.push(star.id);
-          recordFailure(null, 'translator returned empty result (parser refused)');
+          failure.record(null, 'translator returned empty result (parser refused)');
         }
         } catch (err) {
           // R20 蓝军 MAJOR fix (post-audit B): AbortError only propagates
@@ -368,9 +342,9 @@ export async function translateStars(
           }
           failed += 1;
           failedStarIds.push(star.id);
-          // Strong signal — AIError with .kind, or generic Error. Always
-          // record. (AIError-vs-Error priority is inside recordFailure.)
-          recordFailure(err, 'unknown failure');
+          // Strong signal — AIError with .kind, or generic Error. Priority
+          // discipline is inside FailureRecorder (R28 fan-out from R20).
+          failure.record(err, 'unknown failure');
         }
       }
 
@@ -414,7 +388,7 @@ export async function translateStars(
             // Weak signal — only record if no AIError has won yet. Don't
             // push star.id to failedStarIds (description succeeded; the
             // popup retry CTA targets desc failures, not tag-only ones).
-            recordFailure(null, 'tag translator returned empty result');
+            failure.record(null, 'tag translator returned empty result');
           }
         } catch (err) {
           // Same R20 蓝军 MAJOR fix as description path: caller-initiated
@@ -425,7 +399,7 @@ export async function translateStars(
           tagsFailed += 1;
           // AIError from the tag call should still be visible to the
           // user even though tag failures don't push to failedStarIds.
-          recordFailure(err, 'tag translation failed');
+          failure.record(err, 'tag translation failed');
         }
       }
 
@@ -456,7 +430,7 @@ export async function translateStars(
     totalOutputTokens,
     model,
     targetLocale: opts.targetLocale,
-    lastErrorKind,
-    lastErrorMessage,
+    lastErrorKind: failure.getKind(),
+    lastErrorMessage: failure.getMessage(),
   };
 }

@@ -39,7 +39,7 @@
     "placeholder": "搜尋你的 star 倉庫… (語意搜尋)",
     "go": "搜尋",
     "buildFirst": "請先建立搜尋索引。",
-    "codeHintPlaceholder": "Search repos or code (functions/vars)… (semantic)"
+    "codeHintPlaceholder": "搜尋倉庫或程式碼 (函式名/變數)… (語意搜尋)"
   },
   "index": {
     "buildButton": "建立搜尋索引 ({n} 個 star)",
@@ -76,6 +76,7 @@
   "deepIndex": {
     "button": "🔧 深度索引前 {n} 個",
     "buttonMore": "🔧 再深度索引 {n} 個",
+    "buttonTooltip": "拉取 star 數最多的 {n} 個未深度索引倉庫的原始碼並嵌入,讓程式碼內容出現在語意搜尋中。",
     "progress": "正在深度索引 {repo} ({done}/{total})…",
     "noNewRepos": "已覆蓋按 star 數排名前 {n} 的倉庫,無新倉庫可深度索引。",
     "rowButton": "🔧 深度索引",
@@ -116,7 +117,7 @@
     "needsKeys": "Configure GitHub PAT and AI Provider key in the popup before deep-indexing.",
     "metaArchived": "archived",
     "metaFork": "fork",
-    "deepIndexHint": "💡 Deep-index pulls the repo's source code, splits it into snippets, and embeds them so you can search code content (functions / variables / comments) from the popup search bar. Try queries like \"debounce function\" or \"prepare SQL\" after indexing — code snippets show up alongside repo matches.",
-    "deepIndexDoneToast": "✓ Deep-indexed {repo} — try searching code (e.g. function names) in the popup."
+    "deepIndexHint": "💡 深度索引會拉取倉庫原始碼,切成程式碼片段並嵌入向量庫,這樣你可以在 popup 搜尋框直接搜程式碼內容(函式 / 變數 / 註解)。索引完成後試試搜 \"debounce 函式\"、\"prepare SQL\" 這類查詢 — 程式碼片段會和倉庫匹配一起出現在搜尋結果裡。",
+    "deepIndexDoneToast": "✓ 已深度索引 {repo} — 現在可以在 popup 搜尋框搜程式碼內容(如函式名)。"
   }
 }

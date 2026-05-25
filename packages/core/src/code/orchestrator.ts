@@ -14,7 +14,7 @@
  * subagent confirmed; matches the pre-commit comment at idb.ts:62). Lets
  * the search UI filter "code only" via id-prefix without touching metadata.
  */
-import { callWithRetry } from '../ai-retry.js';
+import { callWithRetry, createFailureRecorder } from '../ai-retry.js';
 import type { StarStore } from '../storage/types.js';
 import { contentHash } from '../embedding/text.js';
 import type {
@@ -165,8 +165,11 @@ export async function indexRepoCode(
   let model: string | null = null;
   let done = 0;
   const failedChunkIds: string[] = [];
-  let lastErrorKind: string | null = null;
-  let lastErrorMessage: string | null = null;
+  // R28 fan-out: shared FailureRecorder so a deep-index batch where
+  // both rate_limit AIError and dim-mismatch generic Error fire would
+  // show the AIError (more actionable) to the user, not whichever
+  // landed last by wall-clock. Same priority as the other 4 orchestrators.
+  const failure = createFailureRecorder();
 
   // Batch loop. Same shape as embedStars: parallel getExisting per batch,
   // single embed call, single upsert, per-batch failure isolation.
@@ -254,13 +257,10 @@ export async function indexRepoCode(
       }
       failed += toEmbed.length;
       for (const p of toEmbed) failedChunkIds.push(p.id);
-      if (err instanceof Error) {
-        const kind = (err as { kind?: unknown }).kind;
-        if (typeof kind === 'string') lastErrorKind = kind;
-        lastErrorMessage = err.message;
-      } else {
-        lastErrorMessage = String(err);
-      }
+      // R28 fan-out: FailureRecorder enforces priority discipline so a
+      // concurrent dim-mismatch generic Error can't clobber a rate_limit
+      // AIError that landed first.
+      failure.record(err, String(err));
     }
 
     done += batch.length;
@@ -276,8 +276,8 @@ export async function indexRepoCode(
     totalInputTokens,
     model,
     failedChunkIds,
-    lastErrorKind,
-    lastErrorMessage,
+    lastErrorKind: failure.getKind(),
+    lastErrorMessage: failure.getMessage(),
   };
 }
 

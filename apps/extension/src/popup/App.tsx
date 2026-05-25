@@ -1184,7 +1184,7 @@ export function App(): JSX.Element {
               type="button"
               onClick={() => void onDeepIndex()}
               style={{ ...styles.secondaryButton, flex: 1 }}
-              title={`Fetch source from top-${DEEP_INDEX_TOP_N} unindexed starred repos and embed their code so it shows up in semantic search.`}
+              title={t('deepIndex.buttonTooltip', { n: DEEP_INDEX_TOP_N })}
             >
               {deepIndexedCount === 0
                 ? t('deepIndex.button', { n: DEEP_INDEX_TOP_N })

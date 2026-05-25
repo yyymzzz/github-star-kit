@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   backoffMsFor,
   callWithRetry,
+  createFailureRecorder,
   isTransientChatError,
 } from './ai-retry.js';
 
@@ -68,6 +69,34 @@ describe('backoffMsFor', () => {
     const err = new FakeAIError('server', 'x');
     expect(backoffMsFor(err, 5)).toBe(3500);
     expect(backoffMsFor(err, 100)).toBe(3500);
+  });
+
+  // R28 蓝军 (R26 MAJOR #3): edge cases the original test suite missed.
+  // Audit B flagged: 30 (boundary), 31 (off-by-one), negative values,
+  // zero. The body uses `ra > 0 && ra <= 30` so we pin those branches.
+  it('honors retryAfterSeconds === 30 (upper boundary inclusive)', () => {
+    const err = new FakeAIError('rate_limit', 'x', { retryAfterSeconds: 30 });
+    expect(backoffMsFor(err, 0)).toBe(30000);
+  });
+
+  it('rejects retryAfterSeconds === 31 (one past boundary)', () => {
+    const err = new FakeAIError('rate_limit', 'x', { retryAfterSeconds: 31 });
+    expect(backoffMsFor(err, 0)).toBe(500); // falls back to schedule
+  });
+
+  it('rejects retryAfterSeconds === 0 (zero is not > 0)', () => {
+    const err = new FakeAIError('rate_limit', 'x', { retryAfterSeconds: 0 });
+    expect(backoffMsFor(err, 0)).toBe(500);
+  });
+
+  it('rejects negative retryAfterSeconds (defense against hostile providers)', () => {
+    const err = new FakeAIError('rate_limit', 'x', { retryAfterSeconds: -5 });
+    expect(backoffMsFor(err, 0)).toBe(500);
+  });
+
+  it('rejects NaN retryAfterSeconds (defense against bad parse)', () => {
+    const err = new FakeAIError('rate_limit', 'x', { retryAfterSeconds: NaN });
+    expect(backoffMsFor(err, 0)).toBe(500);
   });
 });
 
@@ -201,5 +230,115 @@ describe('callWithRetry — caller abort', () => {
     await expect(
       callWithRetry(fn, { signal: controller.signal })
     ).rejects.toMatchObject({ name: 'AbortError' });
+  });
+});
+
+// R28: FailureRecorder is the shared priority latch extracted from
+// translate / tag in R28 fan-out (was hand-rolled inline closures).
+// Pins the priority discipline (AIError > Error > weak fallback) so
+// all 5 orchestrators (embed / tag / translate / digest / code) get
+// the SAME semantics for free.
+describe('createFailureRecorder', () => {
+  it('starts in clean state — kind=null, message=null', () => {
+    const r = createFailureRecorder();
+    expect(r.getKind()).toBeNull();
+    expect(r.getMessage()).toBeNull();
+  });
+
+  it('records AIError-shape (has .kind) and exposes both fields', () => {
+    const r = createFailureRecorder();
+    r.record(new FakeAIError('auth', '401 Unauthorized'), 'fallback');
+    expect(r.getKind()).toBe('auth');
+    expect(r.getMessage()).toBe('401 Unauthorized');
+  });
+
+  it('records generic Error (no .kind) — only message, kind stays null', () => {
+    const r = createFailureRecorder();
+    r.record(new Error('something broke'), 'fallback');
+    expect(r.getKind()).toBeNull();
+    expect(r.getMessage()).toBe('something broke');
+  });
+
+  it('records weak fallback when err is null', () => {
+    const r = createFailureRecorder();
+    r.record(null, 'parser refused');
+    expect(r.getKind()).toBeNull();
+    expect(r.getMessage()).toBe('parser refused');
+  });
+
+  it('priority: AIError overwrites previous generic Error', () => {
+    const r = createFailureRecorder();
+    r.record(new Error('first generic'), 'fallback');
+    r.record(new FakeAIError('rate_limit', '429'), 'fallback2');
+    expect(r.getKind()).toBe('rate_limit');
+    expect(r.getMessage()).toBe('429');
+  });
+
+  it('priority: AIError overwrites previous weak fallback', () => {
+    const r = createFailureRecorder();
+    r.record(null, 'parser refused');
+    r.record(new FakeAIError('server', '503'), 'fallback2');
+    expect(r.getKind()).toBe('server');
+    expect(r.getMessage()).toBe('503');
+  });
+
+  it('priority LATCH: weak fallback CANNOT overwrite previous AIError', () => {
+    const r = createFailureRecorder();
+    r.record(new FakeAIError('auth', '401'), 'fallback');
+    r.record(null, 'should not appear');
+    expect(r.getKind()).toBe('auth');
+    expect(r.getMessage()).toBe('401');
+  });
+
+  it('priority LATCH: generic Error CANNOT overwrite previous AIError', () => {
+    // The strong-tier latch protects AIError from BOTH weak signals AND
+    // generic Errors that land later. Without this, a dim-mismatch
+    // generic Error fired after a rate_limit AIError would clobber the
+    // more actionable AIError.
+    const r = createFailureRecorder();
+    r.record(new FakeAIError('rate_limit', '429'), 'f');
+    r.record(new Error('dim mismatch'), 'f2');
+    expect(r.getKind()).toBe('rate_limit');
+    expect(r.getMessage()).toBe('429'); // NOT 'dim mismatch'
+  });
+
+  it('priority: second AIError overwrites first AIError (latest-AIError-wins)', () => {
+    // Within the strong tier, latest-write-wins. Justification: a later
+    // AIError is at least as actionable as the earlier one — and often
+    // it's the FINAL failure after the call-with-retry exhausted, which
+    // is the most relevant signal for the user.
+    const r = createFailureRecorder();
+    r.record(new FakeAIError('rate_limit', '429'), 'f');
+    r.record(new FakeAIError('auth', '401'), 'f2');
+    expect(r.getKind()).toBe('auth');
+    expect(r.getMessage()).toBe('401');
+  });
+
+  it('generic Error overwrites previous weak fallback', () => {
+    const r = createFailureRecorder();
+    r.record(null, 'parser refused');
+    r.record(new Error('network'), 'fallback');
+    expect(r.getKind()).toBeNull();
+    expect(r.getMessage()).toBe('network');
+  });
+
+  it('first-weak-wins: subsequent weak fallback does NOT overwrite first weak', () => {
+    // Inside the weak tier the recorder is first-write-wins. Rationale:
+    // when no AIError has landed and the message slot is already filled
+    // with one weak signal, additional weak signals from later workers
+    // shouldn't churn the user-visible message.
+    const r = createFailureRecorder();
+    r.record(null, 'first weak');
+    r.record(null, 'second weak');
+    expect(r.getMessage()).toBe('first weak');
+  });
+
+  it('non-Error throw (string) routes to weak fallback path', () => {
+    // If a caller does `throw 'plain string'` instead of `throw new Error()`,
+    // err is not instanceof Error so the recorder falls to weak-tier.
+    const r = createFailureRecorder();
+    r.record('plain string thrown', 'fallback used');
+    expect(r.getKind()).toBeNull();
+    expect(r.getMessage()).toBe('fallback used');
   });
 });

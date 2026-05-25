@@ -76,6 +76,7 @@
   "deepIndex": {
     "button": "🔧 Deep-index top {n}",
     "buttonMore": "🔧 Deep-index +{n} more",
+    "buttonTooltip": "Fetch source from top-{n} unindexed starred repos and embed their code so it shows up in semantic search.",
     "progress": "Deep-indexing {repo} ({done}/{total})…",
     "noNewRepos": "No new repos to deep-index (already covered top {n} by stars).",
     "rowButton": "🔧 Deep-index",

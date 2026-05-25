@@ -84,7 +84,8 @@
     "rowTitleEnabled": "Busca código-fonte + incorpora fragmentos de código para que este repo apareça na busca de código",
     "rowTitleDisabled": "Configure PAT + chave AI no popup primeiro.",
     "rowTitleInProgress": "Em andamento…",
-    "zeroChunks": "Deep-index produced 0 chunks for {fullName} ({failed}/{chunks} failed){reason}. Repo not marked complete — click Deep-index again to retry."
+    "zeroChunks": "Deep-index produced 0 chunks for {fullName} ({failed}/{chunks} failed){reason}. Repo not marked complete — click Deep-index again to retry.",
+    "buttonTooltip": "Fetch source from top-{n} unindexed starred repos and embed their code so it shows up in semantic search."
   },
   "stars": {
     "noStarsCached": "Sem stars em cache.",

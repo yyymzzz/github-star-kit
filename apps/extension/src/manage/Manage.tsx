@@ -28,7 +28,7 @@
  *     indexRepoCode for that one repo. Inline progress on the row, no
  *     batch concurrency to worry about.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FixedSizeList } from 'react-window';
 import {
   createGithubClient,
@@ -109,6 +109,20 @@ export function Manage(): JSX.Element {
   // "now go to popup to search code" after a per-row deep-index finishes.
   // Auto-clears after 6s to not nag.
   const [successToast, setSuccessToast] = useState<string | null>(null);
+  // R28 蓝军 MAJOR #1: stable ref to the toast-clear timer so back-to-back
+  // deep-index clicks don't race. Prior code did `setTimeout(... 6000)`
+  // without storing the id — overlapping clicks would let an earlier
+  // timer prematurely clear a newer toast. Also enables cleanup on
+  // unmount to avoid "setState on unmounted component" warning when
+  // user navigates away mid-timeout.
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current !== null) {
+        clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, []);
 
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [sortBy, setSortBy] = useState<SortBy>('starredAt');
@@ -499,13 +513,19 @@ export function Manage(): JSX.Element {
             prev.map((s) => (s.id === star.id ? { ...s, deepIndexed: true } : s))
           );
           // R27 UX: positive feedback — tells the user where to use the
-          // index. Without this, users see "已深度索引" badge and assume
-          // they need to do something else, when actually they should
-          // open the popup search bar. Auto-clear after 6s.
+          // index. R28 蓝军 MAJOR #1: cancel any pending prior toast
+          // timer before scheduling a new one, so overlapping clicks
+          // don't race and prematurely clear a newer toast.
           setSuccessToast(
             t('manage.deepIndexDoneToast', { repo: fresh.fullName })
           );
-          setTimeout(() => setSuccessToast(null), 6000);
+          if (toastTimerRef.current !== null) {
+            clearTimeout(toastTimerRef.current);
+          }
+          toastTimerRef.current = setTimeout(() => {
+            setSuccessToast(null);
+            toastTimerRef.current = null;
+          }, 6000);
         }
         // else: star vanished (user un-starred during the run); do not
         // synthesize from the stale closure. Caller's allStars will

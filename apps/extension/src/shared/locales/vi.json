@@ -84,7 +84,8 @@
     "rowTitleEnabled": "Tải mã nguồn + nhúng đoạn code để repo này xuất hiện trong tìm kiếm code",
     "rowTitleDisabled": "Cấu hình PAT + khóa AI trong popup trước.",
     "rowTitleInProgress": "Đang chạy…",
-    "zeroChunks": "Deep-index produced 0 chunks for {fullName} ({failed}/{chunks} failed){reason}. Repo not marked complete — click Deep-index again to retry."
+    "zeroChunks": "Deep-index produced 0 chunks for {fullName} ({failed}/{chunks} failed){reason}. Repo not marked complete — click Deep-index again to retry.",
+    "buttonTooltip": "Fetch source from top-{n} unindexed starred repos and embed their code so it shows up in semantic search."
   },
   "stars": {
     "noStarsCached": "Chưa có stars trong cache.",

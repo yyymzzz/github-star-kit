@@ -18,7 +18,7 @@
  * stars without aiTags (unless forceRetag=true), so a transient failure
  * is cheap to recover from.
  */
-import { callWithRetry } from '../ai-retry.js';
+import { callWithRetry, createFailureRecorder } from '../ai-retry.js';
 import type { StarredRepo } from '../schema.js';
 import type { StarStore } from '../storage/types.js';
 import { buildTagUserPrompt, parseTagResponse, TAG_SYSTEM_PROMPT } from './text.js';
@@ -144,15 +144,12 @@ export async function tagStars(
   let model: string | null = null;
   let done = skipped; // skipped stars are "done" — they count toward progress
   const failedStarIds: number[] = [];
-  let lastErrorKind: string | null = null;
-  let lastErrorMessage: string | null = null;
-  // R20 蓝军 (subagent B MAJOR #2) priority latch: once a real AIError
-  // lands in lastErrorMessage, the weaker "empty tag list" signal can't
-  // overwrite it. Without this, the popup could display "empty tag list
-  // from provider" even when 4/5 failures were actually rate_limit —
-  // wall-clock order shouldn't decide the user-facing error. Single-
-  // threaded JS makes the boolean read+write atomic per microtask.
-  let aiErrorSeen = false;
+  // R20 MAJOR #2 priority latch + R28 fan-out: shared FailureRecorder
+  // so weak "empty tag list from provider" can't clobber a concurrent
+  // AIError (rate_limit / auth / network). Same priority semantics as
+  // translate / embed / code orchestrators — single source of truth in
+  // ai-retry.ts createFailureRecorder().
+  const failure = createFailureRecorder();
 
   opts.onProgress?.(done, total);
 
@@ -197,14 +194,9 @@ export async function tagStars(
         } else {
           failed += 1;
           failedStarIds.push(star.id);
-          // R20 蓝军 MAJOR #2: WEAK signal. Only record when no AIError
-          // has won the priority race. Otherwise a concurrent rate_limit
-          // can be silently overwritten by this less-actionable message,
-          // misleading the user toward "model output bad" instead of
-          // "rate-limited, retry later".
-          if (!aiErrorSeen) {
-            lastErrorMessage = 'empty tag list from provider';
-          }
+          // WEAK signal — recorder enforces priority: only writes when
+          // no stronger AIError has landed. R28 fan-out from R20 #2.
+          failure.record(null, 'empty tag list from provider');
         }
         totalInputTokens += chatResult.inputTokens;
         totalOutputTokens += chatResult.outputTokens;
@@ -217,23 +209,10 @@ export async function tagStars(
         }
         failed += 1;
         failedStarIds.push(star.id);
-        if (err instanceof Error) {
-          const kind = (err as { kind?: unknown }).kind;
-          if (typeof kind === 'string') {
-            // STRONG signal — AIError. Latch + overwrite freely so
-            // subsequent empty-tag noise can't clobber the rate_limit /
-            // network / auth message that's actually actionable.
-            lastErrorKind = kind;
-            lastErrorMessage = err.message;
-            aiErrorSeen = true;
-          } else if (!aiErrorSeen) {
-            // Generic Error (no .kind) — overwrite weak signal but
-            // step aside if a real AIError already landed.
-            lastErrorMessage = err.message;
-          }
-        } else if (!aiErrorSeen) {
-          lastErrorMessage = String(err);
-        }
+        // FailureRecorder applies tiered priority: AIError > generic
+        // Error > weak fallback. The non-Error branch (catch with a
+        // raw value thrown) falls through to the fallback path.
+        failure.record(err, String(err));
       }
       done += 1;
       opts.onProgress?.(done, total);
@@ -260,7 +239,7 @@ export async function tagStars(
     totalOutputTokens,
     model,
     failedStarIds,
-    lastErrorKind,
-    lastErrorMessage,
+    lastErrorKind: failure.getKind(),
+    lastErrorMessage: failure.getMessage(),
   };
 }

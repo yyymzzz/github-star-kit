@@ -84,7 +84,8 @@
     "rowTitleEnabled": "ソースを取得しコード片を埋め込み、このリポジトリがコード検索に出るようにします",
     "rowTitleDisabled": "先に popup で PAT と AI キーを設定してください。",
     "rowTitleInProgress": "実行中…",
-    "zeroChunks": "Deep-index produced 0 chunks for {fullName} ({failed}/{chunks} failed){reason}. Repo not marked complete — click Deep-index again to retry."
+    "zeroChunks": "Deep-index produced 0 chunks for {fullName} ({failed}/{chunks} failed){reason}. Repo not marked complete — click Deep-index again to retry.",
+    "buttonTooltip": "Fetch source from top-{n} unindexed starred repos and embed their code so it shows up in semantic search."
   },
   "stars": {
     "noStarsCached": "まだスターがキャッシュされていません。",
