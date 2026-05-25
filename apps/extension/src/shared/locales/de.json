@@ -125,7 +125,14 @@
     "viewModeTitle": "Display mode",
     "viewModeCard": "Cards",
     "viewModeList": "List",
-    "viewModeCompact": "Compact"
+    "viewModeCompact": "Compact",
+    "noteButton": "📝",
+    "noteButtonTitle": "Edit local note",
+    "noteDialogTitle": "Note · {repo}",
+    "noteDialogPlaceholder": "Personal note about this repo (markdown OK, not synced to GitHub)…",
+    "noteDialogSave": "Save",
+    "noteDialogCancel": "Cancel",
+    "noteDialogCount": "{n} / 2000"
   },
   "error": {
     "github": {

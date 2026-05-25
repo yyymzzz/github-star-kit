@@ -146,6 +146,29 @@ export function Manage(): JSX.Element {
   // `<HTMLInputElement | null>`), so type the generic without null
   // even though .current starts null at mount.
   const searchInputRef = useRef<HTMLInputElement>(null);
+  // R38 favbox-inspired: note editor dialog. userNote schema field
+  // existed since Phase 3 but had no UI. State holds the currently-
+  // editing star id + draft text; the <dialog> renders modally and
+  // commits via starStore.upsertMany on Save.
+  const [noteEditing, setNoteEditing] = useState<{
+    starId: number;
+    draft: string;
+  } | null>(null);
+  const noteDialogRef = useRef<HTMLDialogElement>(null);
+  // R38: open/close the dialog via DOM API when noteEditing flips.
+  // showModal() / close() are the proper way to drive native <dialog>;
+  // setting `open` attr declaratively would skip the focus-trap +
+  // backdrop behavior. Effect dep on starId only — re-opening with
+  // the same star while editing keeps the dialog stable.
+  useEffect(() => {
+    const dlg = noteDialogRef.current;
+    if (!dlg) return;
+    if (noteEditing !== null && !dlg.open) {
+      dlg.showModal();
+    } else if (noteEditing === null && dlg.open) {
+      dlg.close();
+    }
+  }, [noteEditing]);
   useEffect(() => {
     return () => {
       if (toastTimerRef.current !== null) {
@@ -808,6 +831,11 @@ export function Manage(): JSX.Element {
                 canDeepIndex: aiKey !== '' && pat !== '',
                 columnsPerRow,
                 viewMode,
+                onEditNote: (star: StarredRepo) =>
+                  setNoteEditing({
+                    starId: star.id,
+                    draft: star.userNote ?? '',
+                  }),
               }}
             >
               {GridRow}
@@ -815,6 +843,81 @@ export function Manage(): JSX.Element {
           )}
         </>
       )}
+
+      {/* R38 favbox-inspired note editor — modal <dialog>. Native
+       *  element handles backdrop + focus trap + ESC-to-close. Form
+       *  method="dialog" closes on submit (Save button). Cancel just
+       *  flips state to null which triggers dlg.close() in useEffect. */}
+      <dialog ref={noteDialogRef} style={styles.noteDialog}>
+        {noteEditing !== null && (
+          <form
+            method="dialog"
+            style={styles.noteDialogForm}
+            onSubmit={async (e) => {
+              e.preventDefault();
+              // Re-read fresh row to avoid clobbering concurrent writes
+              // (R21 P0 + R22 race-fix patterns apply here too).
+              const { starStore } = await getStores();
+              const fresh = await starStore.get(noteEditing.starId);
+              if (fresh) {
+                const trimmed = noteEditing.draft.trim();
+                await starStore.upsertMany([
+                  {
+                    ...fresh,
+                    userNote: trimmed.length > 0 ? trimmed : null,
+                  },
+                ]);
+                setAllStars((prev) =>
+                  prev.map((s) =>
+                    s.id === noteEditing.starId
+                      ? { ...s, userNote: trimmed.length > 0 ? trimmed : null }
+                      : s
+                  )
+                );
+              }
+              setNoteEditing(null);
+            }}
+          >
+            <h2 style={styles.noteDialogHeader}>
+              {t('manage.noteDialogTitle', {
+                repo:
+                  allStars.find((s) => s.id === noteEditing.starId)
+                    ?.fullName ?? '',
+              })}
+            </h2>
+            <textarea
+              autoFocus
+              value={noteEditing.draft}
+              onChange={(e) =>
+                setNoteEditing({
+                  starId: noteEditing.starId,
+                  draft: e.target.value.slice(0, 2000),
+                })
+              }
+              placeholder={t('manage.noteDialogPlaceholder')}
+              style={styles.noteDialogTextarea}
+              maxLength={2000}
+            />
+            <div style={styles.noteDialogFooter}>
+              <span style={styles.noteDialogCount}>
+                {t('manage.noteDialogCount', { n: noteEditing.draft.length })}
+              </span>
+              <div style={styles.noteDialogButtons}>
+                <button
+                  type="button"
+                  onClick={() => setNoteEditing(null)}
+                  style={styles.noteDialogCancelBtn}
+                >
+                  {t('manage.noteDialogCancel')}
+                </button>
+                <button type="submit" style={styles.noteDialogSaveBtn}>
+                  {t('manage.noteDialogSave')}
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+      </dialog>
     </main>
   );
 }
@@ -1003,6 +1106,10 @@ interface GridData {
   readonly canDeepIndex: boolean;
   readonly columnsPerRow: number;
   readonly viewMode: ViewMode;
+  // R38 favbox-inspired note editor: opens the dialog with this
+  // star's current userNote as draft. Callback (not a JSX prop)
+  // so cards across all 3 view modes can call it uniformly.
+  readonly onEditNote: (star: StarredRepo) => void;
 }
 
 /**
@@ -1041,6 +1148,7 @@ function GridRow(props: {
           indexing={data.perRowState.has(star.id)}
           canDeepIndex={data.canDeepIndex}
           onDeepIndex={data.onDeepIndex}
+          onEditNote={data.onEditNote}
         />
       </div>
     );
@@ -1055,6 +1163,7 @@ function GridRow(props: {
           indexing={data.perRowState.has(star.id)}
           canDeepIndex={data.canDeepIndex}
           onDeepIndex={data.onDeepIndex}
+          onEditNote={data.onEditNote}
         />
       </div>
     );
@@ -1076,6 +1185,7 @@ function GridRow(props: {
           indexing={data.perRowState.has(star.id)}
           canDeepIndex={data.canDeepIndex}
           onDeepIndex={data.onDeepIndex}
+          onEditNote={data.onEditNote}
         />
       ))}
     </div>
@@ -1092,8 +1202,9 @@ function ListRow(props: {
   readonly indexing: boolean;
   readonly canDeepIndex: boolean;
   readonly onDeepIndex: (star: StarredRepo) => void;
+  readonly onEditNote: (star: StarredRepo) => void;
 }): JSX.Element {
-  const { star, indexing, canDeepIndex, onDeepIndex } = props;
+  const { star, indexing, canDeepIndex, onDeepIndex, onEditNote } = props;
   const { t, locale } = useI18n();
   const displayDesc =
     locale !== 'en' && star.descriptionI18n?.[locale]
@@ -1135,6 +1246,16 @@ function ListRow(props: {
           )}
         </div>
       )}
+      {star.userNote && star.userNote.length > 0 && (
+        <button
+          type="button"
+          style={styles.notePreview}
+          onClick={() => onEditNote(star)}
+          title={t('manage.noteButtonTitle')}
+        >
+          📝 {star.userNote}
+        </button>
+      )}
       <div style={styles.cardFooter}>
         <span style={styles.rowMeta}>
           {formatRelativeTime(star.starredAt)}
@@ -1142,6 +1263,15 @@ function ListRow(props: {
           {star.archived && ` · ${t('manage.metaArchived')}`}
           {star.isFork && ` · ${t('manage.metaFork')}`}
         </span>
+        <button
+          type="button"
+          onClick={() => onEditNote(star)}
+          style={styles.noteIconButton}
+          title={t('manage.noteButtonTitle')}
+          aria-label={t('manage.noteButtonTitle')}
+        >
+          {t('manage.noteButton')}
+        </button>
         {star.deepIndexed ? (
           <span style={styles.deepIndexedBadge}>{t('deepIndex.rowDone')}</span>
         ) : (
@@ -1176,13 +1306,15 @@ function CompactRow(props: {
   readonly indexing: boolean;
   readonly canDeepIndex: boolean;
   readonly onDeepIndex: (star: StarredRepo) => void;
+  readonly onEditNote: (star: StarredRepo) => void;
 }): JSX.Element {
-  const { star, indexing, canDeepIndex, onDeepIndex } = props;
+  const { star, indexing, canDeepIndex, onDeepIndex, onEditNote } = props;
   const { t, locale } = useI18n();
   const displayDesc =
     locale !== 'en' && star.descriptionI18n?.[locale]
       ? star.descriptionI18n[locale]!
       : star.description;
+  const hasNote = star.userNote !== null && star.userNote.length > 0;
   return (
     <div style={styles.compactRow}>
       <a
@@ -1201,6 +1333,22 @@ function CompactRow(props: {
         {star.aiTags.length > 0 && (
           <span style={styles.compactTagCount}>#{star.aiTags.length}</span>
         )}
+        {/* R38: note icon — filled when note exists, faded when empty. */}
+        <button
+          type="button"
+          onClick={() => onEditNote(star)}
+          style={hasNote ? styles.compactNoteButtonHas : styles.compactNoteButton}
+          title={
+            hasNote && star.userNote
+              ? star.userNote.length > 80
+                ? `${star.userNote.slice(0, 80)}…`
+                : star.userNote
+              : t('manage.noteButtonTitle')
+          }
+          aria-label={t('manage.noteButtonTitle')}
+        >
+          {t('manage.noteButton')}
+        </button>
         {star.deepIndexed ? (
           <span style={styles.deepIndexedBadge}>🔧</span>
         ) : (
@@ -1237,8 +1385,9 @@ function Card(props: {
   readonly indexing: boolean;
   readonly canDeepIndex: boolean;
   readonly onDeepIndex: (star: StarredRepo) => void;
+  readonly onEditNote: (star: StarredRepo) => void;
 }): JSX.Element {
-  const { star, indexing, canDeepIndex, onDeepIndex } = props;
+  const { star, indexing, canDeepIndex, onDeepIndex, onEditNote } = props;
   const { t, locale } = useI18n();
   const displayDesc =
     locale !== 'en' && star.descriptionI18n?.[locale]
@@ -1290,6 +1439,18 @@ function Card(props: {
           </div>
         )}
       </div>
+      {/* R38: note preview — shown above footer when userNote exists.
+       *  Click = open editor. Subtle italic, 1-line truncate. */}
+      {star.userNote && star.userNote.length > 0 && (
+        <button
+          type="button"
+          style={styles.notePreview}
+          onClick={() => onEditNote(star)}
+          title={t('manage.noteButtonTitle')}
+        >
+          📝 {star.userNote}
+        </button>
+      )}
       <div style={styles.cardFooter}>
         <span style={styles.rowMeta}>
           {formatRelativeTime(star.starredAt)}
@@ -1297,6 +1458,16 @@ function Card(props: {
           {star.archived && ` · ${t('manage.metaArchived')}`}
           {star.isFork && ` · ${t('manage.metaFork')}`}
         </span>
+        {/* R38: note edit button — always rendered. */}
+        <button
+          type="button"
+          onClick={() => onEditNote(star)}
+          style={styles.noteIconButton}
+          title={t('manage.noteButtonTitle')}
+          aria-label={t('manage.noteButtonTitle')}
+        >
+          {t('manage.noteButton')}
+        </button>
         {star.deepIndexed ? (
           <span style={styles.deepIndexedBadge}>{t('deepIndex.rowDone')}</span>
         ) : (
@@ -1685,6 +1856,117 @@ const styles = {
     color: 'inherit',
     cursor: 'pointer',
     flexShrink: 0,
+  },
+  // R38: note UI styles. notePreview = clickable italic line above
+  // footer (Card+List); noteIconButton = inline 📝 next to deep-index.
+  notePreview: {
+    fontSize: '11.5px',
+    fontStyle: 'italic' as const,
+    background: 'rgba(245, 158, 11, 0.08)',
+    border: '1px solid rgba(245, 158, 11, 0.22)',
+    color: 'inherit',
+    borderRadius: '4px',
+    padding: '4px 8px',
+    cursor: 'pointer',
+    textAlign: 'left' as const,
+    overflow: 'hidden' as const,
+    textOverflow: 'ellipsis' as const,
+    whiteSpace: 'nowrap' as const,
+    width: '100%',
+  },
+  noteIconButton: {
+    fontSize: '12px',
+    padding: '2px 6px',
+    border: '1px solid rgba(127, 127, 127, 0.25)',
+    borderRadius: '4px',
+    background: 'transparent',
+    color: 'inherit',
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  compactNoteButton: {
+    fontSize: '12px',
+    padding: '1px 4px',
+    border: 'none',
+    background: 'transparent',
+    cursor: 'pointer',
+    opacity: 0.4,
+    flexShrink: 0,
+  },
+  compactNoteButtonHas: {
+    fontSize: '12px',
+    padding: '1px 4px',
+    border: 'none',
+    background: 'transparent',
+    cursor: 'pointer',
+    opacity: 1,
+    flexShrink: 0,
+  },
+  noteDialog: {
+    border: '1px solid rgba(127, 127, 127, 0.3)',
+    borderRadius: '8px',
+    padding: 0,
+    maxWidth: '520px',
+    width: '90vw',
+    background: 'inherit',
+    color: 'inherit',
+  },
+  noteDialogForm: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '12px',
+    padding: '16px',
+  },
+  noteDialogHeader: {
+    margin: 0,
+    fontSize: '14px',
+    fontWeight: 600,
+  },
+  noteDialogTextarea: {
+    width: '100%',
+    minHeight: '160px',
+    padding: '8px 10px',
+    fontSize: '13px',
+    fontFamily: 'inherit',
+    border: '1px solid rgba(127, 127, 127, 0.3)',
+    borderRadius: '4px',
+    background: 'transparent',
+    color: 'inherit',
+    resize: 'vertical' as const,
+    boxSizing: 'border-box' as const,
+  },
+  noteDialogFooter: {
+    display: 'flex',
+    justifyContent: 'space-between' as const,
+    alignItems: 'center' as const,
+    gap: '8px',
+  },
+  noteDialogCount: {
+    fontSize: '11px',
+    opacity: 0.6,
+  },
+  noteDialogButtons: {
+    display: 'flex',
+    gap: '8px',
+  },
+  noteDialogCancelBtn: {
+    padding: '6px 12px',
+    border: '1px solid rgba(127, 127, 127, 0.3)',
+    borderRadius: '4px',
+    background: 'transparent',
+    color: 'inherit',
+    cursor: 'pointer',
+    fontSize: '12px',
+  },
+  noteDialogSaveBtn: {
+    padding: '6px 12px',
+    border: 'none',
+    borderRadius: '4px',
+    background: 'rgb(99, 102, 241)',
+    color: 'white',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontWeight: 500,
   },
   // R32 ViewModeToggle: 3-button group on FilterBar. Active mode uses
   // indigo accent matching tagChipActive; inactive uses neutral surface.
