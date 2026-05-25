@@ -793,7 +793,15 @@ export function App(): JSX.Element {
           // Same data-loss class as R21 P0 sync-wipes-i18n.
           const fresh = await starStore.get(star.id);
           if (fresh) {
-            await starStore.upsertMany([{ ...fresh, deepIndexed: true }]);
+            // R36: stamp lastDeepIndexedAt so sync can invalidate on
+            // future pushedAt change (auto-reset deepIndexed=false).
+            await starStore.upsertMany([
+              {
+                ...fresh,
+                deepIndexed: true,
+                lastDeepIndexedAt: new Date().toISOString(),
+              },
+            ]);
           }
           // else: user un-starred during the run; don't synthesize.
         } else if (result.failed > 0 || result.chunks > 0) {

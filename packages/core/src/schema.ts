@@ -46,6 +46,18 @@ export const StarredRepoSchema = z.object({
   subscribedToReleases: z.boolean().default(false),
   /** User has opted to deep-index source code (W5). */
   deepIndexed: z.boolean().default(false),
+  /**
+   * R36 蓝军 MAJOR #1.6: ISO-8601 timestamp when the deep-index pass
+   * completed for this repo. Used to detect staleness: if the repo's
+   * `pushedAt` is newer than `lastDeepIndexedAt`, the user's code
+   * search results are against outdated source — they may click a
+   * permalink and find the function renamed or the file moved. The
+   * sync orchestrator auto-resets `deepIndexed=false` when this
+   * staleness is detected (see mergeLocalFields).
+   *
+   * null = never deep-indexed (matches `deepIndexed=false` semantics).
+   */
+  lastDeepIndexedAt: z.string().nullable().default(null),
   /** Local AI-generated tags (user-editable). */
   aiTags: z.array(z.string()).default([]),
   /** Local AI-generated 1-line summary (cache). */

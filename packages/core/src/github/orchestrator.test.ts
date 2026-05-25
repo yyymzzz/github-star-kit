@@ -705,6 +705,103 @@ describe('syncStarsWithStore — local field preservation (R12 蓝军 regression
     expect(after!.lastTranslatedAt).toBe(translatedAt);
   });
 
+  // R36 蓝军 MAJOR #1.6 regression
+  it('invalidates deepIndexed when pushedAt is newer than lastDeepIndexedAt (R36)', async () => {
+    const starStore = new StarStoreMemory();
+    const cursorStore = new CursorStoreMemory();
+    const client = createGithubClient({ token: TOKEN, retries: 0 });
+
+    // First sync: repo pushed at 2026-05-15
+    nextJson(fm, [sampleStar(1, '2026-05-15T00:00:00Z')], {
+      headers: { etag: '"e1"' },
+    });
+    await syncStarsWithStore(client, { starStore, cursorStore });
+
+    // User marks the repo deep-indexed at 2026-05-16 (one day after push).
+    const existing = await starStore.get(1);
+    await starStore.upsertMany([
+      {
+        ...existing!,
+        deepIndexed: true,
+        lastDeepIndexedAt: '2026-05-16T00:00:00Z',
+      },
+    ]);
+
+    // GitHub reports a NEWER pushedAt (2026-05-20) on the next sync.
+    // sampleStar()'s hardcoded pushed_at is 2026-05-09, so we build
+    // the payload inline with the right pushed_at value.
+    const pushedAfter = '2026-05-20T00:00:00Z';
+    const customSample = {
+      starred_at: '2026-05-15T00:00:00Z',
+      repo: {
+        id: 1,
+        full_name: 'o1/r1',
+        name: 'r1',
+        html_url: 'https://github.com/o1/r1',
+        owner: { login: 'o1', avatar_url: 'https://example.com/a.png' },
+        description: 'd',
+        topics: [],
+        language: 'Rust',
+        pushed_at: pushedAfter,
+        stargazers_count: 1,
+        default_branch: 'main',
+        archived: false,
+        fork: false,
+      },
+    };
+    nextJson(fm, [customSample], { headers: { etag: '"e2"' } });
+    await syncStarsWithStore(
+      client,
+      { starStore, cursorStore },
+      { forceFullSync: true }
+    );
+
+    const after = await starStore.get(1);
+    // deepIndexed AUTO-RESET because pushedAt > lastDeepIndexedAt.
+    expect(after!.deepIndexed).toBe(false);
+    // lastDeepIndexedAt preserved (caller may want to show "last
+    // indexed N days ago" or similar staleness hint).
+    expect(after!.lastDeepIndexedAt).toBe('2026-05-16T00:00:00Z');
+    // pushedAt reflects the fresh GitHub value.
+    expect(after!.pushedAt).toBe(pushedAfter);
+  });
+
+  it('KEEPS deepIndexed when pushedAt is NOT newer than lastDeepIndexedAt', async () => {
+    const starStore = new StarStoreMemory();
+    const cursorStore = new CursorStoreMemory();
+    const client = createGithubClient({ token: TOKEN, retries: 0 });
+
+    nextJson(fm, [sampleStar(1, '2026-05-15T00:00:00Z')], {
+      headers: { etag: '"e1"' },
+    });
+    await syncStarsWithStore(client, { starStore, cursorStore });
+
+    const existing = await starStore.get(1);
+    // User marks deep-indexed AFTER GitHub's pushedAt (no new code).
+    await starStore.upsertMany([
+      {
+        ...existing!,
+        deepIndexed: true,
+        lastDeepIndexedAt: '2026-06-01T00:00:00Z',
+      },
+    ]);
+
+    // Re-sync — pushedAt unchanged (same sample fixture).
+    nextJson(fm, [sampleStar(1, '2026-05-15T00:00:00Z')], {
+      headers: { etag: '"e2"' },
+    });
+    await syncStarsWithStore(
+      client,
+      { starStore, cursorStore },
+      { forceFullSync: true }
+    );
+
+    const after = await starStore.get(1);
+    // Still deepIndexed — no new code uploaded since our index.
+    expect(after!.deepIndexed).toBe(true);
+    expect(after!.lastDeepIndexedAt).toBe('2026-06-01T00:00:00Z');
+  });
+
   it('cold sync (no existing row) writes GitHub data as-is — does not invent local fields', async () => {
     const starStore = new StarStoreMemory();
     const cursorStore = new CursorStoreMemory();

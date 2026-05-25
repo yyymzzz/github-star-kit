@@ -281,6 +281,11 @@ const LOCAL_ONLY_FIELDS = [
   'aiSummaryI18n',
   'aiTagsI18n',
   'lastTranslatedAt',
+  // R36 蓝军 MAJOR #1.6: deep-index completion timestamp. Preserved
+  // across sync like deepIndexed (the bool already in this list).
+  // Sync ALSO uses this field to detect staleness — see mergeLocalFields
+  // below for the auto-reset-on-push branch.
+  'lastDeepIndexedAt',
 ] as const satisfies ReadonlyArray<keyof StarredRepo>;
 
 /**
@@ -327,6 +332,23 @@ async function mergeLocalFields(
       (next as Record<string, unknown>)[field] =
         (existing as Record<string, unknown>)[field] ??
         (row as Record<string, unknown>)[field];
+    }
+    // R36 蓝军 MAJOR #1.6: invalidate deepIndexed if GitHub's pushedAt
+    // is newer than our lastDeepIndexedAt. Triggers a re-deep-index on
+    // next click — the user's vector search would otherwise return
+    // hits against source code that no longer exists upstream. The
+    // pushedAt check is the closest GitHub gives us to "any code may
+    // have changed" — refs we don't track (PR branches, force-pushes)
+    // are not a v1 concern.
+    if (
+      next.deepIndexed &&
+      next.lastDeepIndexedAt !== null &&
+      next.pushedAt !== null &&
+      next.pushedAt > next.lastDeepIndexedAt
+    ) {
+      next.deepIndexed = false;
+      // Keep lastDeepIndexedAt as-is so UI can show "last indexed X
+      // days ago" if it wants — only the boolean trigger resets.
     }
     merged[i] = next;
   }

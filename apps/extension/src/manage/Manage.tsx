@@ -268,17 +268,29 @@ export function Manage(): JSX.Element {
   }, [viewMode]);
 
   // ─── List-height + container-width recompute on window resize ────────
-  // R25: also tracks horizontal width for the responsive card grid.
-  // Both reads happen in the same listener so only one rAF tick per
-  // resize event, and both states settle together (avoids one-frame
-  // layout thrash where columnsPerRow updates before listHeight).
+  // R25: tracks horizontal width for the responsive card grid.
+  // R35 蓝军 MAJOR #3.3 fix: rAF-debounce the listener. Without debounce,
+  // dragging the window edge fires onResize 60+ times/sec, each call
+  // does TWO setStates → React re-render → useMemo recompute on
+  // columnsPerRow → FixedSizeList re-layout 184 stars. Real jank on
+  // mid-tier laptops. rAF coalesces multiple fires into ONE per frame
+  // (max 60Hz update) — same recompute work runs but at frame cadence.
   useEffect(() => {
-    const onResize = () => {
+    let rafId: number | null = null;
+    const apply = () => {
+      rafId = null;
       setListHeight(window.innerHeight - 280);
       setContainerWidth(Math.min(window.innerWidth, 960) - 40);
     };
+    const onResize = () => {
+      if (rafId !== null) return; // Already scheduled this frame.
+      rafId = window.requestAnimationFrame(apply);
+    };
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+    };
   }, []);
 
   // ─── Language facets — computed ONCE per data load ────────────────────
@@ -582,7 +594,15 @@ export function Manage(): JSX.Element {
         // then-merge pattern popup onAutoTag uses (App.tsx:625).
         const fresh = await starStore.get(star.id);
         if (fresh) {
-          await starStore.upsertMany([{ ...fresh, deepIndexed: true }]);
+          // R36: stamp lastDeepIndexedAt so sync can invalidate on
+          // future pushedAt change (auto-reset deepIndexed=false).
+          await starStore.upsertMany([
+            {
+              ...fresh,
+              deepIndexed: true,
+              lastDeepIndexedAt: new Date().toISOString(),
+            },
+          ]);
           setAllStars((prev) =>
             prev.map((s) => (s.id === star.id ? { ...s, deepIndexed: true } : s))
           );
