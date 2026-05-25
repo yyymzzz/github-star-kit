@@ -1233,10 +1233,8 @@ export function App(): JSX.Element {
           </div>
           {digest.entries.length === 0 ? (
             <section style={styles.card}>
-              <strong>No recent activity.</strong>
-              <p style={styles.helpText}>
-                No starred repos have been pushed in the last 7 days.
-              </p>
+              <strong>{t('digest.noActivity')}</strong>
+              <p style={styles.helpText}>{t('digest.noActivityHelp')}</p>
             </section>
           ) : (
             <ol style={styles.list}>
@@ -1253,10 +1251,8 @@ export function App(): JSX.Element {
         </>
       ) : stars.length === 0 ? (
         <section style={styles.card}>
-          <strong>No stars cached yet.</strong>
-          <p style={styles.helpText}>
-            Click <b>Sync</b> to pull your stars from GitHub.
-          </p>
+          <strong>{t('stars.noStarsCached')}</strong>
+          <p style={styles.helpText}>{t('stars.syncPrompt')}</p>
         </section>
       ) : (
         <ol style={styles.list}>
