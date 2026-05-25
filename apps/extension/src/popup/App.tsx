@@ -408,7 +408,7 @@ export function App(): JSX.Element {
       const memVec = memVecRef.current ?? new MemoryVectorStore();
       memVecRef.current = memVec;
 
-      await embedStars({
+      const embedResult = await embedStars({
         starStore,
         // Adapter: AIProvider.embed takes an EmbedRequest object;
         // EmbedBatchFn wants positional (inputs, signal).
@@ -441,6 +441,19 @@ export function App(): JSX.Element {
       // R9 蓝军 fix C1: re-embedding rewrites the profile centroid; any
       // on-screen digest's scores are no longer reproducible. Clear it.
       setDigest(null);
+
+      // R20 蓝军 fix: surface partial failures. v1 discarded the result, so
+      // a run where every batch failed (auth/network) silently looked like
+      // success — user clicks search and gets "0 results". Now we show the
+      // provider's actual message inline so the user knows what to fix.
+      if (embedResult.failed > 0) {
+        const reason = embedResult.lastErrorMessage
+          ? `: ${embedResult.lastErrorMessage}`
+          : '';
+        setError(
+          `Index built with ${embedResult.failed} failed batches (${embedResult.embedded} embedded, ${embedResult.skipped} skipped)${reason}. Click again to retry — already-embedded rows skip via contentHash.`
+        );
+      }
     } catch (err) {
       setError(formatError(err));
     } finally {
@@ -485,7 +498,21 @@ export function App(): JSX.Element {
         starStore,
         chat: (system, user, signal) =>
           provider
-            .chat({ system, user, ...(signal ? { signal } : {}) })
+            .chat({
+              system,
+              user,
+              // R20 蓝军 #1 (subagent B): without an explicit maxTokens,
+              // SiliconFlow / some OpenAI-compatible proxies default to
+              // ≤512 tokens. A 200-char English description translated
+              // into compound-heavy German/Russian can blow past 512 →
+              // response truncated mid-sentence → parseTranslateResponse
+              // accepts the half-string as valid → user sees "翻译不到位".
+              // 1024 covers description-only (~700 max observed). The
+              // tags translation also flows through this adapter; tags
+              // are tiny (~50 tokens), so 1024 is generous overhead.
+              maxTokens: 1024,
+              ...(signal ? { signal } : {}),
+            })
             .then((r) => ({
               text: r.text,
               inputTokens: r.inputTokens,
@@ -532,10 +559,10 @@ export function App(): JSX.Element {
         onProgress: (done, total) => setTranslateProgress({ done, total }),
       });
 
-      // R17 蓝军 fix A3: surface failed count + repo names so user can
-      // see what didn't translate and click Retry. v1 just dropped
-      // `result.failed` on the floor — the "翻译总有几个翻译不了"
-      // complaint had nowhere to land.
+      // R17 蓝军 fix A3 + R20 蓝军 MAJOR #1: surface failed count + repo
+      // names so user can see what didn't translate. R20 adds the actual
+      // provider error message (rate_limit / network / parse / auth) so
+      // the user knows whether to "wait and retry" vs "fix your key".
       if (translateResult.failed > 0) {
         const failedNames = translateResult.failedStarIds
           .slice(0, 3)
@@ -546,8 +573,11 @@ export function App(): JSX.Element {
           translateResult.failedStarIds.length > 3
             ? ` +${translateResult.failedStarIds.length - 3}…`
             : '';
+        const reason = translateResult.lastErrorMessage
+          ? `: ${translateResult.lastErrorMessage}`
+          : '';
         setError(
-          `${translateResult.failed} repos couldn't be translated (${failedNames}${more}). Click Translate again to retry just those — already-done ones will skip.`
+          `${translateResult.failed} repos couldn't be translated (${failedNames}${more})${reason}. Click Translate again to retry just those — already-done ones will skip.`
         );
       }
 
@@ -577,7 +607,7 @@ export function App(): JSX.Element {
       const { starStore } = await getStores();
       const provider = buildProvider(aiProvider, aiKey);
 
-      await tagStars({
+      const tagResult = await tagStars({
         starStore,
         // Adapter: AIProvider.chat takes a ChatRequest object; ChatBatchFn
         // wants (system, user, signal) positional.
@@ -613,6 +643,17 @@ export function App(): JSX.Element {
       setUntaggedCount(all.filter((s) => s.aiTags.length === 0).length);
       setAllStarsForTrCount(all);
       setTagProgress(null);
+
+      // R20 蓝军 fix: surface partial failures (provider error / empty parse).
+      // v1 discarded the result so "0 tagged, all failed" looked like success.
+      if (tagResult.failed > 0) {
+        const reason = tagResult.lastErrorMessage
+          ? `: ${tagResult.lastErrorMessage}`
+          : '';
+        setError(
+          `Auto-tag finished with ${tagResult.failed} failed (${tagResult.tagged} tagged)${reason}. Click again to retry only the unstagged.`
+        );
+      }
     } catch (err) {
       setError(formatError(err));
     } finally {
@@ -663,7 +704,13 @@ export function App(): JSX.Element {
         const [owner, repo] = star.fullName.split('/');
         if (!owner || !repo) continue;
 
-        await indexRepoCode({
+        // R20 蓝军 fix: capture indexRepoCode's result so we can detect
+        // and surface partial / total failures. The v1 code did
+        // `await indexRepoCode({...})` with NO destructure — silent fails
+        // (AIError swallowed inside) returned `{indexed: 0}` and the next
+        // line marked the repo deepIndexed=true regardless, POISONING the
+        // candidate filter so subsequent re-clicks skipped the dead repo.
+        const result = await indexRepoCode({
           starStore,
           repoId: star.id,
           fetchSource: (o, r, signal) =>
@@ -692,8 +739,26 @@ export function App(): JSX.Element {
           getExisting: (id) => vectorStore.get(id),
         });
 
-        // Mark this repo as deep-indexed so the next click skips it.
-        await starStore.upsertMany([{ ...star, deepIndexed: true }]);
+        // R20 蓝军 fix: only mark deepIndexed=true when the pass actually
+        // landed chunks. A 0-indexed repo means the embed pipeline failed
+        // (auth / rate-limit / network / empty fetch); marking it "done"
+        // would permanently hide the repo from future Deep-index clicks.
+        if (result.indexed > 0) {
+          await starStore.upsertMany([{ ...star, deepIndexed: true }]);
+        } else if (result.failed > 0 || result.chunks > 0) {
+          // chunks > 0 but indexed === 0 = every batch failed.
+          // chunks === 0 + failed === 0 = empty fetch / all-skipped files
+          // (e.g. monorepo where src/ lives under a deep path that
+          // pathPreferenceScore drops). Both are user-actionable; surface.
+          const reason = result.lastErrorMessage
+            ? `: ${result.lastErrorMessage}`
+            : result.chunks === 0
+              ? ': no source files matched the language whitelist'
+              : '';
+          throw new Error(
+            `Deep-index produced 0 chunks for ${star.fullName} (${result.failed}/${result.chunks} failed)${reason}. Repo not marked complete — click Deep-index again to retry.`
+          );
+        }
       }
 
       // Refresh the counters that gate the Deep-index button visibility.

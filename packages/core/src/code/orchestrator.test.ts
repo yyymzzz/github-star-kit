@@ -222,12 +222,19 @@ describe('indexRepoCode — failure handling', () => {
     expect(result.indexed + result.failed).toBe(result.chunks);
   });
 
-  it('propagates AbortError unchanged', async () => {
+  it('propagates AbortError when caller signal is aborted', async () => {
+    // R20 蓝军 semantics: AbortError WITH signal.aborted = user cancel
+    // → propagate. AbortError WITHOUT signal.aborted = network-side
+    // timeout → callWithRetry treats as transient and retries. The
+    // test now reflects this contract: cancellation only propagates
+    // when the CALLER initiated it.
     const starStore = new StarStoreMemory();
     await starStore.upsertMany([makeStar(1)]);
     const { upsert } = makeFakeIndex();
     const fetchSource = async () =>
       [{ path: 'a.ts', content: SAMPLE_TS, bytes: SAMPLE_TS.length, language: 'typescript' }] as ReadonlyArray<SourceFile>;
+    const controller = new AbortController();
+    controller.abort();
     const abortingEmbed: EmbedBatchFn = async () => {
       throw new DOMException('Aborted', 'AbortError');
     };
@@ -238,8 +245,37 @@ describe('indexRepoCode — failure handling', () => {
         fetchSource,
         embed: abortingEmbed,
         upsert,
+        signal: controller.signal,
       })
     ).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('treats bare AbortError (no signal) as transient → retries then counts as failed', async () => {
+    // R20 蓝军 fix: a DOMException AbortError thrown by the provider's
+    // internal timeout (NOT the caller's signal) used to silently kill
+    // the whole batch in v1. Now callWithRetry retries up to 3x, then
+    // the orchestrator counts the chunks as failed via failedChunkIds.
+    const starStore = new StarStoreMemory();
+    await starStore.upsertMany([makeStar(1)]);
+    const { upsert } = makeFakeIndex();
+    const fetchSource = async () =>
+      [{ path: 'a.ts', content: SAMPLE_TS, bytes: SAMPLE_TS.length, language: 'typescript' }] as ReadonlyArray<SourceFile>;
+    let calls = 0;
+    const flakyEmbed: EmbedBatchFn = async () => {
+      calls += 1;
+      throw new DOMException('inner timeout', 'AbortError');
+    };
+    const result = await indexRepoCode({
+      starStore,
+      repoId: 1,
+      fetchSource,
+      embed: flakyEmbed,
+      upsert,
+    });
+    expect(result.indexed).toBe(0);
+    expect(result.failed).toBeGreaterThan(0);
+    expect(result.failedChunkIds.length).toBe(result.failed);
+    expect(calls).toBeGreaterThan(1); // retried at least once
   });
 });
 

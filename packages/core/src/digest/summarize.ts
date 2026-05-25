@@ -11,6 +11,7 @@
  * (default 3) keeps wall clock around 2-3 seconds total even on slower
  * providers.
  */
+import { callWithRetry } from '../ai-retry.js';
 import type { StarredRepo } from '../schema.js';
 import type { ChatBatchFn } from '../tagging/orchestrator.js';
 import { TRANSLATE_LOCALE_NAMES } from '../translate/text.js';
@@ -117,6 +118,14 @@ export interface SummarizeOptions {
  * Concurrency model: same bounded-worker pool as tagStars. AbortError /
  * TimeoutError propagate out unchanged; any other per-entry error is
  * swallowed and that entry keeps its undefined summary.
+ *
+ * R20 蓝军 (subagent B MINOR #7) contract note: unlike the other 4 AI
+ * orchestrators (embed / tag / translate / code), this one does NOT
+ * expose `failedStarIds` / `lastErrorKind` / `lastErrorMessage`. By
+ * design — the digest hook is best-effort layered on top of the ranking,
+ * and the UI distinguishes "no hook" by rendering the entry without one
+ * regardless of cause. A future "show why this hook failed" feature
+ * would lift this divergence; current best-effort contract is intentional.
  */
 export async function summarizeDigestEntries(
   entries: ReadonlyArray<DigestEntry>,
@@ -156,19 +165,24 @@ export async function summarizeDigestEntries(
       if (idx === null) return;
       const entry = entries[idx]!;
       try {
-        const result = await chat(
-          systemPrompt,
-          buildDigestSummaryPrompt(entry.star, entry.score),
-          opts.signal
+        // R20 蓝军 fix: wrap chat in callWithRetry. v1's catch only matched
+        // err.name === 'AbortError' || 'TimeoutError' but AIError sets
+        // name='AIError', so every transient AIError silently became "no
+        // summary" with zero retry. The digest UI then rendered as if the
+        // summary had been omitted on purpose. Shared helper retries
+        // rate_limit/timeout/server/network/parse up to 3x.
+        const result = await callWithRetry(
+          () => chat(systemPrompt, buildDigestSummaryPrompt(entry.star, entry.score), opts.signal),
+          opts.signal ? { signal: opts.signal } : {}
         );
         if (opts.signal?.aborted) return;
         const text = result.text.trim();
         if (text.length > 0) summaries.set(idx, text);
       } catch (err) {
-        if (
-          err instanceof Error &&
-          (err.name === 'AbortError' || err.name === 'TimeoutError')
-        ) {
+        // R20 蓝军 fix: AbortError only propagates when CALLER signal aborted.
+        // Bare DOMException AbortError = exhausted-retry transient → swallow
+        // (entry keeps undefined summary, matching v1 swallow-other behavior).
+        if (err instanceof Error && err.name === 'AbortError' && opts.signal?.aborted) {
           throw err;
         }
         // Swallow other errors — the entry keeps its undefined summary.

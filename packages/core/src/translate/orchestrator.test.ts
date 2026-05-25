@@ -308,10 +308,17 @@ describe('translateStars — failure handling', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('propagates AbortError without counting it as a failed star', async () => {
+  it('propagates AbortError when CALLER signal is aborted (user cancel)', async () => {
+    // R20 蓝军 semantics: AbortError WITH signal.aborted=true is the
+    // user-initiated cancel path — propagate to caller. AbortError
+    // WITHOUT signal.aborted is treated as network-side timeout by
+    // callWithRetry → retries → eventually counts as failed (separate
+    // test below). The orchestrator now distinguishes these two paths.
     const starStore = new StarStoreMemory();
     await starStore.upsertMany([makeStar({ id: 1, description: 'x' })]);
     const { fn: updateStar } = makeRecorder();
+    const controller = new AbortController();
+    controller.abort();
     const abortChat: ChatBatchFn = async () => {
       throw new DOMException('User cancelled', 'AbortError');
     };
@@ -321,8 +328,169 @@ describe('translateStars — failure handling', () => {
         chat: abortChat,
         updateStar,
         targetLocale: 'zh-CN',
+        signal: controller.signal,
       })
     ).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('treats bare AbortError (no signal) as transient → retries then counts failed (R20 蓝军)', async () => {
+    // Subagent B (R20 audit) TEST GAP: the other 4 orchestrators all
+    // assert "bare AbortError → retry → failed" but translate didn't.
+    // This locks the contract: a provider's internal withTimeout firing
+    // its own AbortController must NOT silently kill the run — it goes
+    // through callWithRetry's transient ladder.
+    const starStore = new StarStoreMemory();
+    await starStore.upsertMany([makeStar({ id: 1, description: 'x' })]);
+    const { fn: updateStar } = makeRecorder();
+    let calls = 0;
+    const flakyChat: ChatBatchFn = async () => {
+      calls += 1;
+      throw new DOMException('inner timeout', 'AbortError');
+    };
+    const result = await translateStars({
+      starStore,
+      chat: flakyChat,
+      updateStar,
+      targetLocale: 'zh-CN',
+    });
+    expect(result.translated).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(result.failedStarIds).toEqual([1]);
+    expect(calls).toBeGreaterThan(1); // retried at least once
+  });
+
+  it('populates lastErrorKind when AIError-shaped error is thrown (R20 蓝军 MAJOR #1)', async () => {
+    // The contract: when chat throws an AIError carrying a `.kind`
+    // discriminator, the orchestrator must echo `kind` into
+    // lastErrorKind AND the message into lastErrorMessage. Locks the
+    // promise the popup wiring depends on for specific error UX.
+    const starStore = new StarStoreMemory();
+    await starStore.upsertMany([makeStar({ id: 1, description: 'x' })]);
+    const { fn: updateStar } = makeRecorder();
+    class FakeAIError extends Error {
+      override readonly name = 'AIError';
+      constructor(
+        readonly kind: string,
+        message: string
+      ) {
+        super(message);
+      }
+    }
+    const authErrChat: ChatBatchFn = async () => {
+      throw new FakeAIError('auth', '401 Unauthorized — bad API key');
+    };
+    const result = await translateStars({
+      starStore,
+      chat: authErrChat,
+      updateStar,
+      targetLocale: 'zh-CN',
+    });
+    expect(result.failed).toBe(1);
+    expect(result.lastErrorKind).toBe('auth');
+    expect(result.lastErrorMessage).toBe('401 Unauthorized — bad API key');
+  });
+
+  it('priority: AIError beats parser-empty signal in lastErrorMessage (R20 蓝军 MAJOR #1)', async () => {
+    // R20 MAJOR #1 race-priority discipline test: when one star fails
+    // via parser-empty (weak signal) and another via AIError (strong),
+    // lastErrorMessage MUST reflect the AIError regardless of which
+    // landed first by wall-clock. Mirrors the tagging MAJOR #2 latch.
+    //
+    // We use kind='auth' (permanent — NOT in callWithRetry's transient
+    // set) so each star fires the chat exactly once. Using rate_limit
+    // would retry 3× and inflate the call count, conflating "retry
+    // happened" with "priority test failed".
+    const starStore = new StarStoreMemory();
+    await starStore.upsertMany([
+      makeStar({ id: 1, description: 'parser empty path' }),
+      makeStar({ id: 2, description: 'aierror path' }),
+    ]);
+    const { fn: updateStar } = makeRecorder();
+    class FakeAIError extends Error {
+      override readonly name = 'AIError';
+      constructor(
+        readonly kind: string,
+        message: string
+      ) {
+        super(message);
+      }
+    }
+    let call = 0;
+    // R20 蓝军 round-2 fix: force the parser-empty path to land AFTER
+    // the AIError via 20ms setTimeout. Without the delay, the test
+    // passes on microtask scheduling luck rather than the latch. With
+    // the delay, AIError fires first (sync throw), latches aiErrorSeen,
+    // then parser-empty's recordFailure(null, ...) MUST be blocked by
+    // the latch — that's the contract this test now actually pins.
+    const mixedChat: ChatBatchFn = async (_s, user) => {
+      call += 1;
+      if (user.includes('parser empty')) {
+        await new Promise((r) => setTimeout(r, 20));
+        // Returns an essay-length response — parser returns null → weak signal.
+        return {
+          text: 'a'.repeat(1500),
+          inputTokens: 1,
+          outputTokens: 1,
+          model: 'f',
+        };
+      }
+      throw new FakeAIError('auth', '401 Unauthorized — bad key');
+    };
+    const result = await translateStars({
+      starStore,
+      chat: mixedChat,
+      updateStar,
+      targetLocale: 'zh-CN',
+      concurrency: 2,
+    });
+    expect(result.failed).toBe(2);
+    expect(call).toBe(2);
+    expect(result.lastErrorKind).toBe('auth');
+    expect(result.lastErrorMessage).toBe('401 Unauthorized — bad key');
+  });
+
+  it('weak signal does NOT overwrite AIError when ordered: AIError FIRST (latch direction test)', async () => {
+    // Complement of the above: lock the OTHER ordering. With
+    // concurrency=1, AIError star processes FIRST (sets aiErrorSeen +
+    // overwrites freely), parser-empty processes SECOND. The latch
+    // MUST block the parser-empty weak signal from clobbering the
+    // already-recorded AIError. This pins the "priority is irreversible
+    // once latched" half of the contract.
+    const starStore = new StarStoreMemory();
+    await starStore.upsertMany([
+      makeStar({ id: 1, description: 'aierror first' }),
+      makeStar({ id: 2, description: 'parser empty second' }),
+    ]);
+    const { fn: updateStar } = makeRecorder();
+    class FakeAIError extends Error {
+      override readonly name = 'AIError';
+      constructor(readonly kind: string, message: string) {
+        super(message);
+      }
+    }
+    let call = 0;
+    const orderedChat: ChatBatchFn = async (_s, user) => {
+      call += 1;
+      if (user.includes('aierror first')) {
+        throw new FakeAIError('auth', '401 first');
+      }
+      return {
+        text: 'a'.repeat(1500), // parser-empty
+        inputTokens: 1,
+        outputTokens: 1,
+        model: 'f',
+      };
+    };
+    const result = await translateStars({
+      starStore,
+      chat: orderedChat,
+      updateStar,
+      targetLocale: 'zh-CN',
+      concurrency: 1,
+    });
+    expect(result.failed).toBe(2);
+    expect(result.lastErrorKind).toBe('auth');
+    expect(result.lastErrorMessage).toBe('401 first'); // NOT the parser-empty fallback
   });
 });
 

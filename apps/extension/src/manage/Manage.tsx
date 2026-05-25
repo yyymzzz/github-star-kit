@@ -311,7 +311,14 @@ export function Manage(): JSX.Element {
         starStore,
         chat: (system, user, signal) =>
           provider
-            .chat({ system, user, ...(signal ? { signal } : {}) })
+            .chat({
+              system,
+              user,
+              // R20 蓝军 #1: match popup — explicit maxTokens prevents
+              // SiliconFlow truncating compound-heavy translations.
+              maxTokens: 1024,
+              ...(signal ? { signal } : {}),
+            })
             .then((r) => ({
               text: r.text,
               inputTokens: r.inputTokens,
@@ -370,8 +377,14 @@ export function Manage(): JSX.Element {
           translateResult.failedStarIds.length > 3
             ? ` +${translateResult.failedStarIds.length - 3}…`
             : '';
+        // R20 蓝军 MAJOR #1: surface the provider error message so the
+        // user knows whether to wait (rate_limit), fix their key (auth),
+        // or retry (network/parse). Matches popup translate handler.
+        const reason = translateResult.lastErrorMessage
+          ? `: ${translateResult.lastErrorMessage}`
+          : '';
         setError(
-          `${translateResult.failed} repos couldn't be translated (${failedNames}${more}). Click Translate again to retry just those — already-done ones will skip.`
+          `${translateResult.failed} repos couldn't be translated (${failedNames}${more})${reason}. Click Translate again to retry just those — already-done ones will skip.`
         );
       }
     } catch (err) {

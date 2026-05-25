@@ -169,6 +169,74 @@ describe('parseTranslateResponse — R17 蓝军 suffix-note tolerance', () => {
   });
 });
 
+describe('parseTranslateResponse — R20 蓝军 markdown stripping', () => {
+  it('strips **bold** wrappers, keeps content', () => {
+    expect(parseTranslateResponse('**Tokio** 是一个**异步**运行时')).toBe(
+      'Tokio 是一个异步运行时'
+    );
+  });
+
+  it('strips __bold__ wrappers', () => {
+    expect(parseTranslateResponse('__Tokio__ 是异步运行时')).toBe(
+      'Tokio 是异步运行时'
+    );
+  });
+
+  it('strips *italic* wrappers (with word-boundary safety)', () => {
+    expect(parseTranslateResponse('*async* 异步*运行时*。')).toBe(
+      'async 异步运行时。'
+    );
+  });
+
+  it('strips _italic_ wrappers', () => {
+    expect(parseTranslateResponse('_async_ 运行时')).toBe('async 运行时');
+  });
+
+  it('strips inline `code` spans', () => {
+    expect(parseTranslateResponse('使用 `tokio::main` 启动')).toBe(
+      '使用 tokio::main 启动'
+    );
+  });
+
+  it('strips [text](url) markdown links, keeps the text', () => {
+    expect(
+      parseTranslateResponse('[React](https://react.dev) 是 UI 库')
+    ).toBe('React 是 UI 库');
+  });
+
+  it('handles mixed markdown in one translation', () => {
+    expect(
+      parseTranslateResponse(
+        '**Tokio** 是 [Rust](https://rust-lang.org) 的*异步*运行时, 用 `cargo` 安装'
+      )
+    ).toBe('Tokio 是 Rust 的异步运行时, 用 cargo 安装');
+  });
+
+  it('does NOT touch asterisks used as content (no matching pair)', () => {
+    // A single `*` in the middle of a description shouldn't be eaten by
+    // the bold/italic regex because the alternation requires a paired
+    // close. `5 * 3 = 15` is content, not formatting.
+    expect(parseTranslateResponse('数学: 5 * 3 = 15')).toBe('数学: 5 * 3 = 15');
+  });
+});
+
+describe('parseTranslateResponse — R20 蓝军 #4 double-prefix peeling', () => {
+  it('strips both layers of "Sure, here is the translation: 翻译结果:" prefix', () => {
+    expect(
+      parseTranslateResponse(
+        'Sure, here is the translation: 翻译结果: 这是一个运行时。'
+      )
+    ).toBe('这是一个运行时。');
+  });
+
+  it('strips "Here is the translation:" followed by "译文:"', () => {
+    expect(
+      parseTranslateResponse("Here's the translated text: 译文: 你好世界")
+    ).toBe('你好世界');
+  });
+});
+
+
 describe('parseTranslateResponse — R17 蓝军 B3 paired-quote fix', () => {
   it('does NOT strip leading quote when there is no matching trailing quote', () => {
     // "reliable" async runtime — outer first char is `"` but last is `e`,

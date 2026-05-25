@@ -14,6 +14,7 @@
  * subagent confirmed; matches the pre-commit comment at idb.ts:62). Lets
  * the search UI filter "code only" via id-prefix without touching metadata.
  */
+import { callWithRetry } from '../ai-retry.js';
 import type { StarStore } from '../storage/types.js';
 import { contentHash } from '../embedding/text.js';
 import type {
@@ -61,6 +62,25 @@ export interface IndexRepoCodeResult {
   readonly chunks: number;
   readonly totalInputTokens: number;
   readonly model: string | null;
+  /**
+   * R20 蓝军 fix: ids of chunks that FAILED to embed/upsert. UI can list
+   * these for transparency (popup currently just shows the failed count).
+   * Empty on full success. Subset of pending[*].id.
+   */
+  readonly failedChunkIds: ReadonlyArray<string>;
+  /**
+   * R20 蓝军 fix: the specific AIError kind that caused failures, if any.
+   * Lets the caller distinguish "auth — fix your key" from "rate_limit —
+   * try later" from "network — check connection". null when no failures
+   * or when failures came from non-AIError sources (e.g. dim mismatch).
+   */
+  readonly lastErrorKind: string | null;
+  /**
+   * R20 蓝军 fix: human-readable message from the LAST failure, surfaced
+   * verbatim by the popup so the user sees the actual provider error
+   * instead of just a "0 indexed" count.
+   */
+  readonly lastErrorMessage: string | null;
 }
 
 const DEFAULT_BATCH_SIZE = 16;
@@ -144,6 +164,9 @@ export async function indexRepoCode(
   let totalInputTokens = 0;
   let model: string | null = null;
   let done = 0;
+  const failedChunkIds: string[] = [];
+  let lastErrorKind: string | null = null;
+  let lastErrorMessage: string | null = null;
 
   // Batch loop. Same shape as embedStars: parallel getExisting per batch,
   // single embed call, single upsert, per-batch failure isolation.
@@ -176,9 +199,14 @@ export async function indexRepoCode(
     }
 
     try {
-      const embedResult = await opts.embed(
-        toEmbed.map((p) => p.input),
-        opts.signal
+      // R20 蓝军 fix: wrap embed in callWithRetry. v1 caught AIError
+      // (which carries name='AIError', NOT 'TimeoutError') in the bare
+      // catch below → silent failed += toEmbed.length. Now transient
+      // errors (rate_limit/timeout/server/network/parse) retry up to 3x
+      // before bubbling. Same fix that landed for translate in R17.
+      const embedResult = await callWithRetry(
+        () => opts.embed(toEmbed.map((p) => p.input), opts.signal),
+        opts.signal ? { signal: opts.signal } : {}
       );
       if (opts.signal?.aborted) {
         throw new DOMException('indexRepoCode aborted', 'AbortError');
@@ -217,13 +245,22 @@ export async function indexRepoCode(
       totalInputTokens += embedResult.inputTokens;
       model = embedResult.model;
     } catch (err) {
-      if (
-        err instanceof Error &&
-        (err.name === 'AbortError' || err.name === 'TimeoutError')
-      ) {
+      // R20 蓝军 fix: AbortError from user-initiated cancel propagates.
+      // EVERYTHING else (AIError, dim-mismatch, network) counts as failed
+      // and surfaces via failedChunkIds + lastErrorKind/Message so the
+      // popup can show a meaningful error instead of silent "0 indexed".
+      if (err instanceof Error && err.name === 'AbortError' && opts.signal?.aborted) {
         throw err;
       }
       failed += toEmbed.length;
+      for (const p of toEmbed) failedChunkIds.push(p.id);
+      if (err instanceof Error) {
+        const kind = (err as { kind?: unknown }).kind;
+        if (typeof kind === 'string') lastErrorKind = kind;
+        lastErrorMessage = err.message;
+      } else {
+        lastErrorMessage = String(err);
+      }
     }
 
     done += batch.length;
@@ -238,6 +275,9 @@ export async function indexRepoCode(
     chunks: total,
     totalInputTokens,
     model,
+    failedChunkIds,
+    lastErrorKind,
+    lastErrorMessage,
   };
 }
 

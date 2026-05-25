@@ -14,6 +14,7 @@
  * For a typical post-sync run where 95% of stars have unchanged
  * description / language / topics, that's a 20× cost reduction.
  */
+import { callWithRetry } from '../ai-retry.js';
 import type { StarredRepo } from '../schema.js';
 import type { StarStore } from '../storage/types.js';
 import { buildStarEmbeddingInput, contentHash } from './text.js';
@@ -140,6 +141,29 @@ export interface EmbedStarsResult {
   readonly model: string | null;
   /** How many provider.embed calls were made (excludes skipped batches). */
   readonly batches: number;
+  /**
+   * R20 蓝军 fix: ids of stars whose batch FAILED to embed/upsert. UI can
+   * show a "retry these N stars" CTA instead of leaving the user guessing.
+   * Empty array on a fully-successful run. Mirrors translate's failedStarIds.
+   *
+   * Dedupe contract: each id appears at most once per run. A "retry
+   * persistent failures" loop that re-feeds this list across runs must
+   * dedupe itself — the orchestrator does NOT carry prior-run state.
+   */
+  readonly failedStarIds: ReadonlyArray<number>;
+  /**
+   * R20 蓝军 fix: the specific AIError kind from the LAST failure, if any.
+   * Lets the caller distinguish "auth — fix your key" from "rate_limit —
+   * try later" from "network — check connection". null when no failures
+   * or when failures came from non-AIError sources (dim mismatch, etc).
+   */
+  readonly lastErrorKind: string | null;
+  /**
+   * R20 蓝军 fix: human-readable message from the LAST failure, surfaced
+   * verbatim by the popup so the user sees the actual provider error
+   * instead of just a "0 embedded" count.
+   */
+  readonly lastErrorMessage: string | null;
 }
 
 /** Default batch size — see EmbedStarsOptions.batchSize for rationale. */
@@ -190,6 +214,9 @@ export async function embedStars(
   let model: string | null = null;
   let batches = 0;
   let done = 0;
+  const failedStarIds: number[] = [];
+  let lastErrorKind: string | null = null;
+  let lastErrorMessage: string | null = null;
 
   // Walk the star list in fixed-size batches. The "skip via contentHash"
   // filtering happens INSIDE each batch so a batch where every star is
@@ -250,9 +277,15 @@ export async function embedStars(
     }
 
     try {
-      const embedResult = await opts.embed(
-        toEmbed.map((x) => x.input),
-        opts.signal
+      // R20 蓝军 fix: wrap embed in callWithRetry. The v1 catch only matched
+      // err.name === 'AbortError' || 'TimeoutError' — but AIError sets
+      // name='AIError' (packages/ai/src/errors.ts:32), so every transient
+      // AIError (rate_limit/timeout/server/network/parse) silently turned
+      // into `failed += toEmbed.length` with zero retry. The shared helper
+      // duck-types on `err.kind` and retries up to 3x with exp-backoff.
+      const embedResult = await callWithRetry(
+        () => opts.embed(toEmbed.map((x) => x.input), opts.signal),
+        opts.signal ? { signal: opts.signal } : {}
       );
 
       // Re-check abort RIGHT AFTER embed returns. If the signal aborted while
@@ -292,18 +325,28 @@ export async function embedStars(
       model = embedResult.model;
       batches += 1;
     } catch (err) {
-      // AbortError is the user-initiated cancel path — surface it instead
-      // of swallowing as a failed batch.
-      if (
-        err instanceof Error &&
-        (err.name === 'AbortError' || err.name === 'TimeoutError')
-      ) {
+      // R20 蓝军 fix: AbortError only propagates when CALLER initiated it.
+      // Bare DOMException AbortError (from withTimeout's internal controller)
+      // is exhausted-retry transient → counts as failed like other errors.
+      // The shared callWithRetry already retried it up to maxRetries.
+      if (err instanceof Error && err.name === 'AbortError' && opts.signal?.aborted) {
         throw err;
       }
-      // Any other error (network, provider 5xx, schema mismatch) costs us
-      // this batch's rows in the `failed` tally. We continue so a single
-      // bad batch doesn't strand the rest of the index.
+      // R20 蓝军 fix: surface WHICH stars + the error context so the popup
+      // can show a meaningful "X failed: <provider msg>" instead of silent
+      // "0 embedded". The catch can fire for: callWithRetry exhausting
+      // retries on a transient, a permanent AIError (auth/bad_request), a
+      // dim-mismatch from the provider-contract sanity check, or an upsert
+      // throw. All count as this batch failing.
       failed += toEmbed.length;
+      for (const x of toEmbed) failedStarIds.push(x.star.id);
+      if (err instanceof Error) {
+        const kind = (err as { kind?: unknown }).kind;
+        if (typeof kind === 'string') lastErrorKind = kind;
+        lastErrorMessage = err.message;
+      } else {
+        lastErrorMessage = String(err);
+      }
     }
 
     done += batchStars.length;
@@ -317,5 +360,8 @@ export async function embedStars(
     totalInputTokens,
     model,
     batches,
+    failedStarIds,
+    lastErrorKind,
+    lastErrorMessage,
   };
 }

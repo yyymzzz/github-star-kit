@@ -119,14 +119,20 @@ export function parseTranslateResponse(raw: string): string | null {
     // which the v1 regex left intact, polluting the persisted text.
     // Order matters — strip the verbose phrases FIRST, then the
     // language-name singletons that might be a suffix to those phrases.
-    .replace(
-      /^(?:Sure[,]?\s*here(?:'s| is)\s*(?:the\s*)?(?:translation|translated\s*text)|Here(?:'s| is)\s*(?:the\s*)?(?:translation|translated\s*text)|翻译(?:结果|内容|后的内容)?|翻譯(?:結果|內容)?|译文|譯文)\s*[:：]\s*/i,
-      ''
-    )
-    .replace(
-      /^(?:Translation|Translated|翻译|翻譯|翻訳|Traduction|Übersetzung|Перевод|Traducción|번역|Bản dịch)\s*[:：]\s*/i,
-      ''
-    );
+    .replace(/^/, ''); // anchor — actual loop runs below for double-prefix fix
+
+  // R20 蓝军 #4 (subagent B): models emit DOUBLE prefixes like
+  //   "Sure, here is the translation: 翻译结果: <text>"
+  // — one verbose English phrase plus one language-name singleton. v1 ran
+  // two sequential `.replace()` calls but each fired only ONCE, leaving
+  // the second layer. Loop until fixed-point so both layers peel.
+  const prefixRegex =
+    /^(?:Sure[,]?\s*here(?:'s| is)\s*(?:the\s*)?(?:translation|translated\s*text)|Here(?:'s| is)\s*(?:the\s*)?(?:translation|translated\s*text)|Translation|Translated|Result|Output|翻译(?:结果|内容|后(?:的)?(?:内容|文本)?)?|翻譯(?:結果|內容)?|译文|譯文|翻訳(?:結果)?|Traduction|Übersetzung|Перевод|Traducción|번역|Bản dịch)\s*[:：]\s*/i;
+  for (let i = 0; i < 4; i += 1) {
+    const next = cleaned.replace(prefixRegex, '').trim();
+    if (next === cleaned) break;
+    cleaned = next;
+  }
 
   // R17 蓝军 fix: many models emit `<translation>\n\n(Note: kept React
   // untranslated because it's a brand name.)` despite the "no commentary"
@@ -149,6 +155,21 @@ export function parseTranslateResponse(raw: string): string | null {
     /\s*[(（][^()（）]*(?:kept|left|preserved|untranslated|brand|as in source|original|protected|保留|因为|不译|原文)[^()（）]*[)）]\s*$/i,
     ''
   );
+
+  // R20 蓝军 #2 (subagent B): strip markdown emphasis + inline links +
+  // code spans. SiliconFlow / DashScope routinely emit `**Tokio** 是一个
+  // **异步** 运行时` or `[React](https://react.dev) 是 UI 库` even when
+  // the prompt says "no markdown" — the popup renders into a plain text
+  // div, so raw ** / [text](url) / `code` chars become user-visible noise.
+  // Strip the syntax but keep the content. Order matters: links FIRST
+  // (their inner text may contain bold/italic), then bold, italic, code.
+  cleaned = cleaned
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // [text](url) → text
+    .replace(/\*\*([^*\n]+)\*\*/g, '$1') // **bold** → bold
+    .replace(/__([^_\n]+)__/g, '$1') // __bold__ → bold
+    .replace(/(?<![\w*])\*([^*\n]+)\*(?!\w)/g, '$1') // *italic* → italic
+    .replace(/(?<![\w_])_([^_\n]+)_(?!\w)/g, '$1') // _italic_ → italic
+    .replace(/`([^`\n]+)`/g, '$1'); // `code` → code
 
   // R17 蓝军 fix B3: only strip surrounding quotes when they PAIR
   // (matching open/close). v1 stripped leading AND trailing independently,

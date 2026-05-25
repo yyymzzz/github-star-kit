@@ -135,6 +135,11 @@ describe('embedStars — happy paths', () => {
       totalInputTokens: 0,
       model: null,
       batches: 0,
+      // R20 蓝军: new failure-surfacing fields default to empty/null on a
+      // fully-empty run — there were no batches so nothing could fail.
+      failedStarIds: [],
+      lastErrorKind: null,
+      lastErrorMessage: null,
     });
   });
 
@@ -299,18 +304,56 @@ describe('embedStars — failure handling', () => {
     expect(map.size).toBe(0); // No rows leaked into the index
   });
 
-  it('throws (does not swallow) when the provider raises AbortError', async () => {
+  it('throws (does not swallow) when CALLER signal is aborted', async () => {
+    // R20 蓝军 semantics: AbortError propagates only when the CALLER's signal
+    // is aborted (user pressed cancel). A bare AbortError without signal.aborted
+    // is treated by callWithRetry as a network-side timeout (provider's internal
+    // withTimeout) and retried — see the next test.
     const starStore = new StarStoreMemory();
     await starStore.upsertMany([makeStar({ id: 1 })]);
     const { upsert } = makeFakeIndex();
+    const controller = new AbortController();
+    controller.abort();
 
     const abortingEmbed: EmbedBatchFn = async () => {
       throw new DOMException('Aborted by user', 'AbortError');
     };
 
     await expect(
-      embedStars({ starStore, embed: abortingEmbed, upsert })
+      embedStars({
+        starStore,
+        embed: abortingEmbed,
+        upsert,
+        signal: controller.signal,
+      })
     ).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('treats bare AbortError (no signal) as transient → retries then counts as failed', async () => {
+    // R20 蓝军 fix: a DOMException AbortError from the provider's internal
+    // timeout (NOT the caller's signal) used to kill the whole embedStars run.
+    // Now callWithRetry retries up to 3x; after exhaustion the batch counts
+    // as failed via failedStarIds rather than throwing.
+    const starStore = new StarStoreMemory();
+    await starStore.upsertMany([makeStar({ id: 1 }), makeStar({ id: 2 })]);
+    const { upsert, map } = makeFakeIndex();
+
+    let calls = 0;
+    const flakyEmbed: EmbedBatchFn = async () => {
+      calls += 1;
+      throw new DOMException('inner timeout', 'AbortError');
+    };
+
+    const result = await embedStars({
+      starStore,
+      embed: flakyEmbed,
+      upsert,
+    });
+    expect(result.embedded).toBe(0);
+    expect(result.failed).toBe(2);
+    expect(result.failedStarIds).toEqual([1, 2]);
+    expect(calls).toBeGreaterThan(1); // retried at least once
+    expect(map.size).toBe(0);
   });
 });
 

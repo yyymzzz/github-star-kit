@@ -192,14 +192,36 @@ describe('summarizeDigestEntries — robustness', () => {
     expect(result[0]!.summary).toBeUndefined();
   });
 
-  it('propagates AbortError without swallowing it', async () => {
+  it('propagates AbortError when CALLER signal is aborted', async () => {
+    // R20 蓝军 semantics: AbortError propagates only when caller's signal
+    // is aborted. A bare AbortError without signal.aborted is treated as
+    // a network-side timeout — callWithRetry retries then the entry just
+    // keeps an undefined summary (no throw).
     const entries = [makeEntry({ star: makeStar({ id: 1 }) })];
+    const controller = new AbortController();
+    controller.abort();
     const abortChat: ChatBatchFn = async () => {
       throw new DOMException('Aborted', 'AbortError');
     };
     await expect(
-      summarizeDigestEntries(entries, abortChat)
+      summarizeDigestEntries(entries, abortChat, { signal: controller.signal })
     ).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('treats bare AbortError (no signal) as transient → retries then leaves summary undefined', async () => {
+    // R20 蓝军 fix: bare AbortError used to propagate and kill the whole
+    // digest summary pass (so a single transient inner-timeout = "all
+    // entries have no hooks"). Now callWithRetry retries up to 3x; if all
+    // attempts fail the entry just keeps its undefined summary.
+    const entries = [makeEntry({ star: makeStar({ id: 1 }) })];
+    let calls = 0;
+    const flakyChat: ChatBatchFn = async () => {
+      calls += 1;
+      throw new DOMException('inner timeout', 'AbortError');
+    };
+    const result = await summarizeDigestEntries(entries, flakyChat);
+    expect(result[0]!.summary).toBeUndefined();
+    expect(calls).toBeGreaterThan(1); // retried at least once
   });
 
   it('rejects concurrency < 1', async () => {

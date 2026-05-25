@@ -14,6 +14,7 @@
  * Callback-decoupled the same way: `@starkit/core` doesn't import
  * `@starkit/ai`. Caller wraps `AIProvider.chat` at the boundary.
  */
+import { callWithRetry } from '../ai-retry.js';
 import type { StarredRepo } from '../schema.js';
 import type { StarStore } from '../storage/types.js';
 import { parseTagResponse } from '../tagging/text.js';
@@ -43,40 +44,12 @@ export type UpdateStarTranslationFn = (
   field: 'description' | 'tags'
 ) => Promise<void>;
 
-/**
- * Identify a transient error worth retrying. R17 蓝军 fix A1+A2:
- * AIError instances all carry `name='AIError'` (see packages/ai/src/
- * errors.ts), so the previous `name === 'TimeoutError'` check at the
- * catch site NEVER matched timeouts coming up from the AI layer — they
- * silently became `failed`. We duck-type on `kind` here so the
- * orchestrator stays decoupled from @starkit/ai (no workspace cycle).
- */
-function isTransientChatError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  // AbortError = user pressed cancel; never retry user-initiated stops.
-  // Distinguished from network-timeout aborts via the caller's
-  // opts.signal.aborted check, which happens BEFORE this function.
-  const kind = (err as { kind?: unknown }).kind;
-  return (
-    kind === 'rate_limit' ||
-    kind === 'timeout' ||
-    kind === 'server' ||
-    kind === 'network'
-  );
-}
-
-/** Exponential backoff for retries. Honors `retryAfterSeconds` when the
- *  provider tells us how long to wait (rate-limit responses do this);
- *  otherwise 500ms / 1500ms / 3500ms. */
-function backoffMsFor(err: unknown, attempt: number): number {
-  const ctx = (err as { context?: { retryAfterSeconds?: unknown } }).context;
-  const ra = ctx?.retryAfterSeconds;
-  if (typeof ra === 'number' && ra > 0 && ra <= 30) {
-    return ra * 1000;
-  }
-  // 500 / 1500 / 3500 ms — capped at attempt=3 → ~5.5s worst case per star
-  return [500, 1500, 3500][attempt] ?? 3500;
-}
+// R20 蓝军 architectural fix: retry helpers moved to ../ai-retry.ts so every
+// orchestrator (embed / tag / translate / digest / deep-index) shares ONE
+// canonical implementation. The R17 local copy here was missing kind='parse'
+// in the transient set, which is why SiliconFlow's HTML-when-overloaded
+// page (parser throws → AIError(kind='parse')) was a permanent failure
+// instead of a 1-retry recovery — the "翻译不到位" symptom in R20.
 
 export interface TranslateStarsOptions {
   readonly starStore: StarStore;
@@ -118,12 +91,33 @@ export interface TranslateStarsResult {
    * R17 蓝军 fix A3: surface WHICH stars failed so the popup can show
    * a retry CTA for just those instead of leaving the user guessing.
    * Empty array on a fully-successful run.
+   *
+   * Per-run dedupe: a single id appears at most once per run even if
+   * both the description AND tag passes fail for the same star — only
+   * the description failure pushes here (tag failures roll into
+   * `tagsFailed` instead). Callers that re-feed this list inside the
+   * SAME run (e.g. immediate retry CTA against this exact result) do
+   * NOT need to dedupe.
+   *
+   * Multi-run aggregation: a caller that aggregates ids ACROSS multiple
+   * `translateStars` invocations (e.g. "retry persistent failures
+   * accumulated over several user clicks") MUST dedupe itself — the
+   * orchestrator does NOT carry prior-run state. R20 蓝军 round-2
+   * MINOR #5 fix: aligned wording with tagging's failedStarIds JSDoc.
    */
   readonly failedStarIds: ReadonlyArray<number>;
   /** Stars excluded from the pass because `description` was null/empty. */
   readonly noSourceText: number;
   readonly totalInputTokens: number;
   readonly totalOutputTokens: number;
+  /**
+   * Model name from the most-recent chat call (regardless of parse
+   * outcome). A run that succeeded N times will report that model;
+   * a run where every call returned an unparseable response will ALSO
+   * report that model (it's still the model that produced the bad
+   * output). null only when zero chat calls were made (empty store,
+   * everything already cached). R20 蓝军 round-2 MAJOR #3 clarified.
+   */
   readonly model: string | null;
   /** Counts of tag-translation calls (when alsoTags=true). Description
    *  counts are the existing `translated` field — kept separate so the
@@ -133,6 +127,30 @@ export interface TranslateStarsResult {
   readonly tagsFailed: number;
   /** The locale id the run targeted — echoed back for caller's UI. */
   readonly targetLocale: string;
+  /**
+   * R20 蓝军 (subagent B MAJOR #1): the specific AIError kind from the
+   * LAST failure, if any. Lets the popup distinguish "auth — fix your
+   * key" from "rate_limit — try later" from "parse — provider returned
+   * HTML". null when no failures OR when failures came from non-AIError
+   * sources (e.g. parseTranslateResponse returning null because the
+   * model emitted only refusal text).
+   *
+   * Contract aligned with embedStars/tagStars/indexRepoCode/digest so
+   * the popup wiring is uniform across all 5 AI orchestrators.
+   */
+  readonly lastErrorKind: string | null;
+  /**
+   * R20 蓝军 (subagent B MAJOR #1): human-readable message from the LAST
+   * failure, surfaced verbatim by the popup so the user sees the actual
+   * provider error instead of just a "N failed" count.
+   *
+   * Race-priority: AIError-shaped errors (carrying `.kind`) ALWAYS
+   * overwrite, so a transient rate_limit/network failure beats the
+   * weaker "model returned only sentence-length tag candidates" signal.
+   * Empty-translation signals only write when no stronger error has been
+   * recorded yet — same priority discipline as tagging fix MAJOR #2.
+   */
+  readonly lastErrorMessage: string | null;
 }
 
 const DEFAULT_CONCURRENCY = 5;
@@ -196,6 +214,39 @@ export async function translateStars(
   let totalOutputTokens = 0;
   let model: string | null = null;
   let done = skipped + noSource.length; // these contribute to progress count
+  // R20 蓝军 MAJOR #1: surface the last failure context so popup can
+  // render specific error (e.g. "rate_limit: 429 Too Many Requests")
+  // instead of a bare failed count. Race priority: AIError beats
+  // weaker signals (parser-empty) — see recordFailure().
+  let lastErrorKind: string | null = null;
+  let lastErrorMessage: string | null = null;
+  // recordFailure centralizes the priority discipline: AIError-shaped
+  // errors (have `.kind`) ALWAYS overwrite; weaker signals only write
+  // when no AIError has been seen yet. The `aiErrorSeen` latch makes
+  // this O(1) and concurrent-safe in JS's single-threaded model — once
+  // a real provider error landed, no parser-empty noise can clobber it.
+  let aiErrorSeen = false;
+  const recordFailure = (err: unknown, fallbackMsg: string): void => {
+    if (err instanceof Error) {
+      const kind = (err as { kind?: unknown }).kind;
+      if (typeof kind === 'string') {
+        // Strong signal — overwrite freely, mark latch.
+        lastErrorKind = kind;
+        lastErrorMessage = err.message;
+        aiErrorSeen = true;
+        return;
+      }
+      // Generic Error (no .kind). Treat as medium — overwrite weak
+      // parser-empty messages but not a previously-recorded AIError.
+      if (!aiErrorSeen) lastErrorMessage = err.message;
+      return;
+    }
+    // Weak signal (parser returned null, etc.) — only write if nothing
+    // stronger is recorded yet.
+    if (!aiErrorSeen && lastErrorMessage === null) {
+      lastErrorMessage = fallbackMsg;
+    }
+  };
   opts.onProgress?.(done, total);
 
   const systemPrompt = buildTranslateSystemPrompt(opts.targetLocale, localeNativeName);
@@ -205,51 +256,16 @@ export async function translateStars(
   );
   const alsoTags = opts.alsoTags ?? true;
 
-  /** Max retry attempts for transient errors per chat call. Total attempts =
-   *  MAX_RETRIES + 1. Three attempts × ~5.5s worst-case = ~16s per star ceiling
-   *  before declaring permanent fail. Empirically: SiliconFlow free-tier 429s
-   *  recover within 2-5s so 3 attempts catch ~95% of transient cases. */
-  const MAX_RETRIES = 2;
-
-  /**
-   * Chat call wrapper with retry-on-transient. R17 蓝军 fix A1+A2:
-   *   - Rate-limit (kind=rate_limit) AIErrors → backoff per retryAfterSeconds
-   *   - Server (kind=server, 5xx) → exponential backoff
-   *   - Timeout (kind=timeout, OR DOMException AbortError WITHOUT signal aborted)
-   *     → backoff retry
-   *   - User abort (signal.aborted=true) → propagate immediately, no retry
-   *   - Anything else → throw to outer catch (counts as failed)
-   */
-  async function callChatWithRetry(
-    system: string,
-    user: string
-  ): Promise<{
-    text: string;
-    model: string;
-    inputTokens: number;
-    outputTokens: number;
-  }> {
-    let lastErr: unknown;
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
-      if (opts.signal?.aborted) {
-        throw new DOMException('translateStars aborted', 'AbortError');
-      }
-      try {
-        return await opts.chat(system, user, opts.signal);
-      } catch (err) {
-        lastErr = err;
-        // User-initiated cancel: never retry.
-        if (opts.signal?.aborted) throw err;
-        // Bare DOMException AbortError without signal-aborted = network-side
-        // timeout (withTimeout fired its own abort); still transient.
-        const isAbort = err instanceof Error && err.name === 'AbortError';
-        const transient = isAbort || isTransientChatError(err);
-        if (!transient || attempt === MAX_RETRIES) throw err;
-        await new Promise((r) => setTimeout(r, backoffMsFor(err, attempt)));
-      }
-    }
-    throw lastErr ?? new Error('callChatWithRetry: unreachable');
-  }
+  // R20 蓝军: thin wrapper over shared callWithRetry so the call-site stays
+  // readable. The shared helper handles all the retry semantics that used
+  // to live here (signal.aborted bubble, bare AbortError = transient,
+  // kind={rate_limit,timeout,server,network,parse} = transient + backoff).
+  // Critically picks up `parse` retry — fixes SiliconFlow HTML overload page.
+  const callChatWithRetry = (system: string, user: string) =>
+    callWithRetry(
+      () => opts.chat(system, user, opts.signal),
+      opts.signal ? { signal: opts.signal } : {}
+    );
 
   let cursor = 0;
   const next = (): StarredRepo | null => {
@@ -278,18 +294,44 @@ export async function translateStars(
         totalOutputTokens += r.outputTokens;
         model = r.model;
         if (text !== null) {
+          // R20 蓝军 MAJOR #4 defensive — DO NOT REMOVE.
+          // The current sync path between parseTranslateResponse and
+          // updateStar means this check is currently redundant — but
+          // any future `await` inserted into that window (e.g. content
+          // post-processing, validation, locale normalization) would
+          // silently let abandoned writes land after the user cancelled.
+          // Cheap defense vs. expensive "why did this write happen
+          // after I clicked Cancel" bug report. No test covers this
+          // gap (would require closure-mocking parseTranslateResponse)
+          // — the comment IS the test. R20 蓝军 round-2 MINOR #4 fix.
+          if (opts.signal?.aborted) return;
           await opts.updateStar(star.id, opts.targetLocale, text, 'description');
           translated += 1;
           descOK = true;
         } else {
+          // Parser refused — model emitted only refusal text / preamble /
+          // empty. Counts as failed but it's the WEAK signal — record
+          // only if no stronger AIError has been seen yet.
           failed += 1;
           failedStarIds.push(star.id);
+          recordFailure(null, 'translator returned empty result (parser refused)');
         }
       } catch (err) {
-        if (opts.signal?.aborted) return;
-        if (err instanceof Error && err.name === 'AbortError') throw err;
+        // R20 蓝军 MAJOR fix (post-audit B): AbortError only propagates
+        // when CALLER signal initiated the cancel. Bare AbortError from
+        // provider's internal withTimeout = exhausted-retry transient
+        // → counts as failed. Matches embed/tag/code/digest pattern.
+        // The v1 unguarded `throw err` was a latent bug — silently
+        // killed the run on any inner timeout even though callWithRetry
+        // already retried it 3x.
+        if (err instanceof Error && err.name === 'AbortError' && opts.signal?.aborted) {
+          throw err;
+        }
         failed += 1;
         failedStarIds.push(star.id);
+        // Strong signal — AIError with .kind, or generic Error. Always
+        // record. (AIError-vs-Error priority is inside recordFailure.)
+        recordFailure(err, 'unknown failure');
       }
 
       // ─── Tags translation (best-effort, only when desc succeeded) ───
@@ -310,6 +352,13 @@ export async function translateStars(
           // formatting (Tags:/Output: prefix, numbered bullets, quotes).
           const parsedTags = parseTagResponse(tr.text);
           if (parsedTags.length > 0) {
+            // R20 蓝军 MAJOR #4 defensive — DO NOT REMOVE.
+            // Same rationale as the description path above: cheap
+            // defense against future await-insertion silently letting
+            // abandoned writes land. No test covers this gap (would
+            // require closure-mocking parseTagResponse); the comment
+            // IS the test. R20 蓝军 round-2 MINOR #4 fix.
+            if (opts.signal?.aborted) return;
             // Persist as comma-joined string per the aiTagsI18n schema
             // (record of locale → joined string). UI side splits via the
             // same parseTagResponse contract.
@@ -322,11 +371,21 @@ export async function translateStars(
             tagsTranslated += 1;
           } else {
             tagsFailed += 1;
+            // Weak signal — only record if no AIError has won yet. Don't
+            // push star.id to failedStarIds (description succeeded; the
+            // popup retry CTA targets desc failures, not tag-only ones).
+            recordFailure(null, 'tag translator returned empty result');
           }
         } catch (err) {
-          if (opts.signal?.aborted) return;
-          if (err instanceof Error && err.name === 'AbortError') throw err;
+          // Same R20 蓝军 MAJOR fix as description path: caller-initiated
+          // AbortError propagates; bare AbortError counts as failed.
+          if (err instanceof Error && err.name === 'AbortError' && opts.signal?.aborted) {
+            throw err;
+          }
           tagsFailed += 1;
+          // AIError from the tag call should still be visible to the
+          // user even though tag failures don't push to failedStarIds.
+          recordFailure(err, 'tag translation failed');
         }
       }
 
@@ -357,5 +416,7 @@ export async function translateStars(
     totalOutputTokens,
     model,
     targetLocale: opts.targetLocale,
+    lastErrorKind,
+    lastErrorMessage,
   };
 }
