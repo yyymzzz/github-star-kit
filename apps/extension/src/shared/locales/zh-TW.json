@@ -39,7 +39,11 @@
     "placeholder": "搜尋你的 star 倉庫… (語意搜尋)",
     "go": "搜尋",
     "buildFirst": "請先建立搜尋索引。",
-    "codeHintPlaceholder": "搜尋倉庫或程式碼 (函式名/變數)… (語意搜尋)"
+    "codeHintPlaceholder": "搜尋倉庫或程式碼 (函式名/變數)… (語意搜尋)",
+    "filterAll": "全部 ({n})",
+    "filterStars": "倉庫 ({n})",
+    "filterCode": "程式碼 ({n})",
+    "filterTitle": "依命中類型過濾搜尋結果"
   },
   "index": {
     "buildButton": "建立搜尋索引 ({n} 個 star)",

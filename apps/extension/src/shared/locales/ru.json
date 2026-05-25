@@ -39,7 +39,11 @@
     "placeholder": "Поиск по отмеченным репо… (семантический)",
     "go": "OK",
     "buildFirst": "Сначала постройте поисковый индекс.",
-    "codeHintPlaceholder": "Search repos or code (functions/vars)… (semantic)"
+    "codeHintPlaceholder": "Search repos or code (functions/vars)… (semantic)",
+    "filterAll": "All ({n})",
+    "filterStars": "Stars ({n})",
+    "filterCode": "Code ({n})",
+    "filterTitle": "Filter search results by hit kind"
   },
   "index": {
     "buildButton": "Построить индекс ({n} звёзд)",

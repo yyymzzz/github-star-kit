@@ -190,6 +190,12 @@ export function App(): JSX.Element {
   const [searchResults, setSearchResults] = useState<ReadonlyArray<SearchHit>>(
     []
   );
+  // R39 audit MINOR close: filter search results by hit kind. Ephemeral
+  // state (not KV-persisted) — resets between popup opens since most
+  // sessions are short and the default ('all') is rarely wrong.
+  const [searchFilter, setSearchFilter] = useState<'all' | 'star' | 'code'>(
+    'all'
+  );
   const [digest, setDigest] = useState<DigestResult | null>(null);
 
   // The popup-lifetime hot index. Pre-filled from IDB at mount; mutated by
@@ -1297,20 +1303,68 @@ export function App(): JSX.Element {
           2. Digest view active: show digest entries
           3. Otherwise: top-10 most-recently-starred */}
       {showSearchResults ? (
-        <ol style={styles.list}>
-          {searchResults.map((hit, idx) => (
-            <li
-              key={hit.kind === 'code' ? `${hit.star.id}:${hit.path}:${hit.startLine}` : `s:${hit.star.id}:${idx}`}
-              style={styles.listItem}
-            >
-              {hit.kind === 'star' ? (
-                <RepoLink star={hit.star} score={hit.score} />
-              ) : (
-                <CodeSnippet hit={hit} />
-              )}
-            </li>
-          ))}
-        </ol>
+        <>
+          {/* R39 audit MINOR close: search-kind filter pills. Only
+           *  render the Code chip when there ARE code hits (avoids a
+           *  dead button when deep-index isn't set up). Filter applied
+           *  inline to searchResults at render time — no separate
+           *  filtered-state needed since searchResults already small
+           *  (top-10 results). */}
+          {(() => {
+            const starCount = searchResults.filter((h) => h.kind === 'star').length;
+            const codeCount = searchResults.filter((h) => h.kind === 'code').length;
+            if (starCount === 0 || codeCount === 0) return null; // No filter UI when mixed view is moot
+            return (
+              <div
+                style={styles.searchFilterRow}
+                role="group"
+                aria-label={t('search.filterTitle')}
+              >
+                {(
+                  [
+                    { key: 'all' as const, label: t('search.filterAll', { n: searchResults.length }) },
+                    { key: 'star' as const, label: t('search.filterStars', { n: starCount }) },
+                    { key: 'code' as const, label: t('search.filterCode', { n: codeCount }) },
+                  ]
+                ).map((opt) => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setSearchFilter(opt.key)}
+                    style={
+                      searchFilter === opt.key
+                        ? styles.searchFilterChipActive
+                        : styles.searchFilterChip
+                    }
+                    aria-pressed={searchFilter === opt.key}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
+          <ol style={styles.list}>
+            {searchResults
+              .filter((h) => searchFilter === 'all' || h.kind === searchFilter)
+              .map((hit, idx) => (
+                <li
+                  key={
+                    hit.kind === 'code'
+                      ? `${hit.star.id}:${hit.path}:${hit.startLine}`
+                      : `s:${hit.star.id}:${idx}`
+                  }
+                  style={styles.listItem}
+                >
+                  {hit.kind === 'star' ? (
+                    <RepoLink star={hit.star} score={hit.score} />
+                  ) : (
+                    <CodeSnippet hit={hit} />
+                  )}
+                </li>
+              ))}
+          </ol>
+        </>
       ) : digest !== null ? (
         <>
           <div style={styles.digestHeader}>
@@ -1862,6 +1916,33 @@ const styles = {
     fontSize: '13px',
     background: 'transparent',
     color: 'inherit',
+  },
+  // R39: filter chip group above search results. Mimics the FilterBar
+  // tag chip styling from manage page so it's visually familiar.
+  searchFilterRow: {
+    display: 'flex',
+    gap: '6px',
+    flexWrap: 'wrap' as const,
+  },
+  searchFilterChip: {
+    fontSize: '11px',
+    padding: '3px 9px',
+    background: 'transparent',
+    color: 'inherit',
+    border: '1px solid rgba(127, 127, 127, 0.3)',
+    borderRadius: '11px',
+    cursor: 'pointer',
+    fontWeight: 400,
+  },
+  searchFilterChipActive: {
+    fontSize: '11px',
+    padding: '3px 9px',
+    background: 'rgba(99, 102, 241, 0.18)',
+    color: 'rgb(67, 56, 202)',
+    border: '1px solid rgba(99, 102, 241, 0.4)',
+    borderRadius: '11px',
+    cursor: 'pointer',
+    fontWeight: 600,
   },
   list: {
     margin: 0,

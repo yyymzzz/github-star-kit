@@ -39,7 +39,11 @@
     "placeholder": "Tìm trong stars… (ngữ nghĩa)",
     "go": "OK",
     "buildFirst": "Hãy tạo chỉ mục tìm kiếm trước.",
-    "codeHintPlaceholder": "Search repos or code (functions/vars)… (semantic)"
+    "codeHintPlaceholder": "Search repos or code (functions/vars)… (semantic)",
+    "filterAll": "All ({n})",
+    "filterStars": "Stars ({n})",
+    "filterCode": "Code ({n})",
+    "filterTitle": "Filter search results by hit kind"
   },
   "index": {
     "buildButton": "Tạo chỉ mục ({n} stars)",

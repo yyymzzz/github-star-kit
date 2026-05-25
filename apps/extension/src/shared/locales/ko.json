@@ -39,7 +39,11 @@
     "placeholder": "스타한 저장소 검색… (의미 기반)",
     "go": "검색",
     "buildFirst": "먼저 검색 인덱스를 만드세요.",
-    "codeHintPlaceholder": "Search repos or code (functions/vars)… (semantic)"
+    "codeHintPlaceholder": "Search repos or code (functions/vars)… (semantic)",
+    "filterAll": "All ({n})",
+    "filterStars": "Stars ({n})",
+    "filterCode": "Code ({n})",
+    "filterTitle": "Filter search results by hit kind"
   },
   "index": {
     "buildButton": "검색 인덱스 만들기 ({n}개)",

@@ -39,7 +39,11 @@
     "placeholder": "Buscar nos favoritos… (semântica)",
     "go": "Ir",
     "buildFirst": "Primeiro crie o índice de busca.",
-    "codeHintPlaceholder": "Search repos or code (functions/vars)… (semantic)"
+    "codeHintPlaceholder": "Search repos or code (functions/vars)… (semantic)",
+    "filterAll": "All ({n})",
+    "filterStars": "Stars ({n})",
+    "filterCode": "Code ({n})",
+    "filterTitle": "Filter search results by hit kind"
   },
   "index": {
     "buildButton": "Criar índice ({n} stars)",

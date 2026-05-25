@@ -39,7 +39,11 @@
     "placeholder": "搜索你的 star 仓库… (语义搜索)",
     "go": "搜索",
     "buildFirst": "请先建立搜索索引。",
-    "codeHintPlaceholder": "搜索仓库或代码 (函数名/变量)… (语义搜索)"
+    "codeHintPlaceholder": "搜索仓库或代码 (函数名/变量)… (语义搜索)",
+    "filterAll": "全部 ({n})",
+    "filterStars": "仓库 ({n})",
+    "filterCode": "代码 ({n})",
+    "filterTitle": "按命中类型过滤搜索结果"
   },
   "index": {
     "buildButton": "建立搜索索引 ({n} 个 star)",
