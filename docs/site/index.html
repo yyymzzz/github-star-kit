@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GitHub Star Kit — AI intelligence for your GitHub stars</title>
+  <meta name="description" content="Browser extension + Obsidian plugin. Local-first AI search, weekly digest, auto-tagging, and code-context search across your starred repos." />
+  <meta name="robots" content="index, follow" />
+  <link rel="icon" type="image/png" sizes="32x32" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABEUlEQVR4nO2VsUoDQRRFLwgWFhYWFhYWFhYWFhYWaiP+gB+QH4iVrYWFhYWFhYWFhYWFhYWFhYUgIqLgYK7zCJsd5s0kk2yK4MIyzM7M+87dx06A//6QKgQVAr+iyJSAUcGNTBV4FwDBO0BoBdDqEHwGDDEgBP/+vC1AQgBcAEoF4AKwAjQUgKkAtAJoEYAKILUAGYK9AlAFcAFYALYBwLkBHADHALfAOTAJjAEPwBNwDFwCYwLcAycAH8AC8AzMA+vAGdALdAFXgK/AKzAFnAKHwBSwDQzWLwGYAXaB18AhsAQ8AJsEPpJg7QM+gB6AT8C7gE+gB+ATCAH4BBeAvsAA8AzcA88AdcAm8AQ8AVMA08AAsAY8AmsAYcA28A78A18AmsAQAA1HPnvtN5K1pAAAAAElFTkSuQmCC" />
+  <style>
+    :root { color-scheme: light dark; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+                   'Helvetica Neue', Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      background: #ffffff;
+      color: #1f2328;
+    }
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 48px 20px 80px;
+    }
+    .hero {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+    .star-icon {
+      width: 80px;
+      height: 80px;
+      background: #6366f1;
+      border-radius: 18px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+      box-shadow: 0 8px 24px rgba(99, 102, 241, 0.35);
+    }
+    .star-icon svg {
+      width: 56px;
+      height: 56px;
+      fill: white;
+    }
+    h1 {
+      font-size: 32px;
+      margin: 0 0 8px;
+      letter-spacing: -0.01em;
+    }
+    .tagline {
+      font-size: 17px;
+      opacity: 0.7;
+      margin: 0 0 32px;
+    }
+    .cta-row {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .cta {
+      display: inline-block;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 500;
+      text-decoration: none;
+      transition: transform 0.1s ease;
+    }
+    .cta:hover { transform: translateY(-1px); }
+    .cta-primary {
+      background: #6366f1;
+      color: white;
+    }
+    .cta-secondary {
+      background: rgba(99, 102, 241, 0.1);
+      color: #6366f1;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+    }
+    h2 {
+      font-size: 22px;
+      margin: 40px 0 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+    }
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin: 24px 0;
+    }
+    .feature {
+      padding: 16px;
+      background: rgba(99, 102, 241, 0.05);
+      border: 1px solid rgba(99, 102, 241, 0.18);
+      border-radius: 10px;
+    }
+    .feature h3 {
+      margin: 0 0 8px;
+      font-size: 15px;
+      color: #4338ca;
+    }
+    .feature p {
+      margin: 0;
+      font-size: 13px;
+      opacity: 0.85;
+    }
+    .privacy-note {
+      background: rgba(34, 197, 94, 0.08);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      padding: 16px 20px;
+      border-radius: 10px;
+      margin: 24px 0;
+    }
+    .privacy-note strong { color: #166534; }
+    code {
+      background: rgba(99, 102, 241, 0.10);
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+      font-size: 0.92em;
+    }
+    a { color: #6366f1; text-underline-offset: 3px; }
+    .footer {
+      margin-top: 64px;
+      padding-top: 24px;
+      border-top: 1px solid rgba(0, 0, 0, 0.1);
+      text-align: center;
+      font-size: 13px;
+      opacity: 0.65;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { background: #0d1117; color: #c9d1d9; }
+      h2 { border-bottom-color: rgba(255, 255, 255, 0.14); }
+      .feature h3 { color: #a5b4fc; }
+      .privacy-note { background: rgba(34, 197, 94, 0.12); border-color: rgba(34, 197, 94, 0.4); }
+      .privacy-note strong { color: #86efac; }
+      code { background: rgba(99, 102, 241, 0.2); }
+      .footer { border-top-color: rgba(255, 255, 255, 0.16); }
+      a { color: #a5b4fc; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="hero">
+      <div class="star-icon">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <polygon points="12,2 14.6,8.6 21.5,9.2 16.3,13.7 17.9,20.5 12,16.9 6.1,20.5 7.7,13.7 2.5,9.2 9.4,8.6"/>
+        </svg>
+      </div>
+      <h1>GitHub Star Kit</h1>
+      <p class="tagline">
+        AI-powered intelligence for your GitHub stars — weekly digest,
+        semantic search, smart tags, code-context search. All local.
+      </p>
+      <div class="cta-row">
+        <a class="cta cta-primary" href="https://github.com/yyymzzz/github-star-kit">View on GitHub</a>
+        <a class="cta cta-secondary" href="./privacy-policy.html">Privacy Policy</a>
+      </div>
+    </div>
+
+    <div class="privacy-note">
+      <strong>🔒 Fully local-first.</strong> No telemetry. No servers.
+      No analytics. The only network destinations are <code>api.github.com</code>
+      and the AI provider <em>you</em> choose. Your data stays on your device.
+    </div>
+
+    <h2>Key features</h2>
+    <div class="feature-grid">
+      <div class="feature">
+        <h3>📰 Weekly Digest</h3>
+        <p>Top recently-pushed starred repos ranked by relevance to your interest profile. AI summaries explain why each matters.</p>
+      </div>
+      <div class="feature">
+        <h3>🔍 Semantic Search</h3>
+        <p>Type "SSE retry library" and find the repo even if its description never said those words. Local vector search.</p>
+      </div>
+      <div class="feature">
+        <h3>🤖 Auto-Tags</h3>
+        <p>One-click LLM tagging across your whole star list. Filter the manage page by tag.</p>
+      </div>
+      <div class="feature">
+        <h3>🌐 Translate (11 langs)</h3>
+        <p>Repo descriptions + tags translated to zh-CN / ja / ko / de / fr / es / pt-BR / ru / vi / zh-TW.</p>
+      </div>
+      <div class="feature">
+        <h3>🔧 Deep-Index Code</h3>
+        <p>Opt-in: index source code from selected repos. Search code chunks with file path + GitHub permalink.</p>
+      </div>
+      <div class="feature">
+        <h3>📝 Private Notes</h3>
+        <p>Add a private memo to any starred repo. Stays on your device — GitHub never sees it.</p>
+      </div>
+    </div>
+
+    <h2>Bring your own AI key</h2>
+    <p>
+      Star Kit doesn't ship with an API key. You provide one for the
+      provider you trust: <strong>OpenAI</strong>, <strong>Anthropic</strong>,
+      <strong>Voyage AI</strong>, <strong>SiliconFlow</strong>,
+      <strong>DashScope</strong>, or a self-hosted
+      <strong>Ollama</strong> proxy on localhost.
+    </p>
+    <p>
+      Typical cost on the cheapest providers: <strong>~$0.05-$0.50 to
+      index 1,000 stars</strong>; ongoing sync is free.
+    </p>
+
+    <h2>Open source</h2>
+    <p>
+      MIT licensed. Audit any privacy claim by reading the code at
+      <a href="https://github.com/yyymzzz/github-star-kit">github.com/yyymzzz/github-star-kit</a>.
+      Issues, ideas, and PRs welcome.
+    </p>
+
+    <div class="footer">
+      v0.1.0 — <a href="./privacy-policy.html">Privacy</a> ·
+      <a href="https://github.com/yyymzzz/github-star-kit">GitHub</a> ·
+      <a href="https://github.com/yyymzzz/github-star-kit/issues">Issues</a>
+    </div>
+  </main>
+</body>
+</html>

@@ -228,14 +228,33 @@ want to track binaries) and upload via the CWS dashboard.
 
 ## Privacy policy URL
 
-CWS requires a publicly-accessible URL.
+**R43 SHIPPED.** The policy lives at `docs/privacy-policy.md`,
+auto-deployed via `.github/workflows/pages.yml` whenever main is
+pushed.
 
-**Simplest deploy**: enable GitHub Pages on the repo, add a
-`docs/privacy-policy.md` (R42 candidate), and use:
-`https://yyymzzz.github.io/github-star-kit/privacy-policy.html`.
+**Public URL (after first deploy):**
+`https://yyymzzz.github.io/github-star-kit/privacy-policy.html`
 
-Content for the policy itself: the **"Privacy practices form"**
-section above, reformatted as a standalone page.
+**Landing page (linked from the privacy footer):**
+`https://yyymzzz.github.io/github-star-kit/`
+
+### One-time setup (user step)
+
+1. Open the repo on github.com → **Settings → Pages**.
+2. Under "Build and deployment" → **Source** → choose
+   `GitHub Actions` (NOT "Deploy from a branch").
+3. Push any commit to main. The `Deploy Pages` workflow will fire
+   and the URL above will go live within ~1 minute.
+
+### Verifying before paste into CWS form
+
+```
+curl -sIL https://yyymzzz.github.io/github-star-kit/privacy-policy.html | head -5
+# Expect: HTTP/2 200, Content-Type: text/html
+```
+
+If the URL 404s, the workflow either hasn't run yet (check
+github.com/yyymzzz/github-star-kit/actions) or Pages isn't enabled.
 
 ---
 

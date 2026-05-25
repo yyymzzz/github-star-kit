@@ -1,0 +1,65 @@
+# GitHub Pages deployment for the privacy policy + landing page.
+#
+# R43: the Chrome Web Store requires a publicly-accessible privacy policy
+# URL. Rather than maintain a separate site, build a tiny static site from
+# docs/privacy-policy.md (and a hand-crafted index.html landing page) and
+# deploy via GitHub Pages.
+#
+# Trigger: any push to main that touches docs/ or this workflow.
+# Output URL: https://{owner}.github.io/{repo}/  (e.g.
+# https://yyymzzz.github.io/github-star-kit/)
+#   - / and /index.html       → landing page (links to README + privacy)
+#   - /privacy-policy.html    → rendered privacy policy
+#
+# This workflow does NOT replace the GitHub repo's README; it's just the
+# CWS-facing URL. The README at github.com/{owner}/{repo}/blob/main/README.md
+# remains the canonical project description for developers.
+name: Deploy Pages
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/privacy-policy.md
+      - docs/site/**
+      - .github/workflows/pages.yml
+  # Allow manual re-deploys from the Actions UI without bumping anything.
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install markdown
+        run: pip install 'markdown>=3.6'
+      - name: Build site
+        run: |
+          mkdir -p _site
+          # Landing page — hand-crafted minimal HTML.
+          cp docs/site/index.html _site/index.html
+          # Render privacy policy markdown → HTML using python-markdown.
+          python docs/site/render-privacy.py \
+            docs/privacy-policy.md \
+            _site/privacy-policy.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
