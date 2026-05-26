@@ -437,6 +437,67 @@ describe('translateStars — skip-cache + force re-translate', () => {
 });
 
 describe('translateStars — failure handling', () => {
+  it('R49 root cause: surfaces tagsFailed + lastErrorMessage when desc-cached stars hit tag-chat failures', async () => {
+    // The "翻译按钮点击后页面闪烁后毫无反应" bug:
+    //   - User has 9 stars whose description was translated in a prior run
+    //     but whose aiTags translation failed (provider noise).
+    //   - R48 round-3 fixed the noSource judgment so these stars now reach
+    //     the worker.
+    //   - Worker desc-arm short-circuits (descAlreadyCached=true) → tags arm
+    //     fires.
+    //   - Tags chat throws (SiliconFlow HTML overload / 429 / parse).
+    //   - PRE-FIX popup behavior: `if (translateResult.failed > 0)` was false
+    //     because `failed` counts description failures only. The setError
+    //     never fired → no banner → user perceives "flicker, nothing happens."
+    // Contract: when only tag-translation throws, orchestrator MUST report
+    //   tagsFailed > 0 AND lastErrorMessage non-empty AND failed === 0
+    //   (description path didn't fail; it short-circuited). UI handlers must
+    //   then check BOTH failure counts when deciding whether to surface error.
+    const starStore = new StarStoreMemory();
+    await starStore.upsertMany([
+      makeStar({
+        id: 1,
+        description: 'Already translated text.',
+        descriptionI18n: { 'zh-CN': '已翻译的文本。' },
+        aiTags: ['cli', 'rust'],
+        aiTagsI18n: {},
+      }),
+      makeStar({
+        id: 2,
+        description: 'Another cached one.',
+        descriptionI18n: { 'zh-CN': '另一个已缓存。' },
+        aiTags: ['web', 'js'],
+        aiTagsI18n: {},
+      }),
+    ]);
+    const { fn: updateStar, calls } = makeRecorder();
+    // chat throws on every call — simulates provider overload returning HTML
+    // (parses to AIError kind='parse') or 429s.
+    const alwaysFail: ChatBatchFn = async () => {
+      throw new Error('provider returned HTML / 429 / overloaded');
+    };
+    const result = await translateStars({
+      starStore,
+      chat: alwaysFail,
+      updateStar,
+      targetLocale: 'zh-CN',
+    });
+    // Description path: 0 failures because desc was already cached for both.
+    expect(result.failed).toBe(0);
+    expect(result.translated).toBe(0);
+    expect(result.failedStarIds).toEqual([]);
+    // Tags path: both attempted, both failed. THIS is what the UI must surface.
+    expect(result.tagsFailed).toBe(2);
+    expect(result.tagsTranslated).toBe(0);
+    // The actual provider error message must be non-null so the UI can show
+    // the user WHY it failed (not just "0 stars translated, ¯\_(ツ)_/¯").
+    expect(result.lastErrorMessage).not.toBeNull();
+    expect(result.lastErrorMessage).toContain('provider returned HTML');
+    // No updateStar writes happened — aiTagsI18n stays empty so untranslated-
+    // Count stays at 2 → button text doesn't change → "无反应" perception.
+    expect(calls).toHaveLength(0);
+  });
+
   it('counts a chat error as failed, continues with others', async () => {
     const starStore = new StarStoreMemory();
     await starStore.upsertMany([

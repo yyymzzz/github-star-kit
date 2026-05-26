@@ -587,7 +587,13 @@ export function Manage(): JSX.Element {
       setAllStars(fresh);
       setTranslateProgress(null);
 
-      if (translateResult.failed > 0) {
+      // R49 mirror (same fix as popup App.tsx:704): OR-gate on tagsFailed
+      // so the "翻译按钮点击后毫无反应" perception doesn't replay here when
+      // desc-cached stars hit tag-chat failures. Without this guard, the
+      // partialFailure toast never fires → user sees button vanish + come
+      // back with count unchanged + zero feedback.
+      const totalFailed = translateResult.failed + translateResult.tagsFailed;
+      if (totalFailed > 0) {
         const failedNames = translateResult.failedStarIds
           .slice(0, 3)
           .map((id) => fresh.find((s) => s.id === id)?.fullName)
@@ -605,7 +611,7 @@ export function Manage(): JSX.Element {
           : '';
         setError(
           t('translate.partialFailure', {
-            failed: translateResult.failed,
+            failed: totalFailed,
             names: failedNames,
             more,
             reason,

@@ -701,7 +701,19 @@ export function App(): JSX.Element {
       // names so user can see what didn't translate. R20 adds the actual
       // provider error message (rate_limit / network / parse / auth) so
       // the user knows whether to "wait and retry" vs "fix your key".
-      if (translateResult.failed > 0) {
+      //
+      // R49 root cause: the `failed > 0` gate alone was silent when desc-
+      // already-cached stars hit tag-chat failures (failed=0, tagsFailed=N).
+      // User clicked Translate → button vanished → tag calls all errored →
+      // setError never fired → button reappeared → count unchanged → the
+      // "闪烁后毫无反应" symptom. Now OR-gate on tagsFailed and aggregate
+      // the count so the partialFailure toast reflects total user-visible
+      // failures (desc + tags). failedStarIds still tracks desc-only by
+      // design (popup retry CTA focuses on desc); tag-only failures fall
+      // back to a count-only message which is acceptable for the partial-
+      // failure toast.
+      const totalFailed = translateResult.failed + translateResult.tagsFailed;
+      if (totalFailed > 0) {
         const failedNames = translateResult.failedStarIds
           .slice(0, 3)
           .map((id) => allStarsForTrCount.find((s) => s.id === id)?.fullName)
@@ -716,7 +728,7 @@ export function App(): JSX.Element {
           : '';
         setError(
           t('translate.partialFailure', {
-            failed: translateResult.failed,
+            failed: totalFailed,
             names: failedNames,
             more,
             reason,
