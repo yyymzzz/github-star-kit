@@ -203,15 +203,30 @@ export async function translateStars(
   const alsoTags = opts.alsoTags ?? true;
   let skipped = 0;
   for (const star of allStars) {
-    if (!star.description || star.description.trim().length === 0) {
+    // R48 round-3 P0 fix ("翻译 N 个" button stuck):
+    // Previously this dropped any star with empty description into
+    // noSource and `continue`d, regardless of whether aiTags needed
+    // translating. R48 R1 had widened untranslatedCount to count
+    // tag-only-missing stars → button correctly said "翻译 9 个" — but
+    // those 9 stars were still being filtered out here, so clicking did
+    // nothing. New invariant: noSource means "truly nothing to do" —
+    // desc is empty AND (alsoTags is off OR aiTags is empty). When desc
+    // is empty but aiTags need translation, the star enters the worker
+    // and only the tags arm fires (desc arm short-circuits at descEmpty).
+    const descEmpty = !star.description || star.description.trim().length === 0;
+    const hasTagsToTranslate = alsoTags && star.aiTags.length > 0;
+    if (descEmpty && !hasTagsToTranslate) {
       noSource.push(star);
       continue;
     }
     if (!opts.forceRetranslate) {
+      // descCached treats "desc empty" as a no-op success (nothing to
+      // translate equals already translated). Otherwise the cached check.
       const descCached =
-        star.descriptionI18n &&
-        typeof star.descriptionI18n[opts.targetLocale] === 'string' &&
-        star.descriptionI18n[opts.targetLocale]!.length > 0;
+        descEmpty ||
+        (star.descriptionI18n &&
+          typeof star.descriptionI18n[opts.targetLocale] === 'string' &&
+          star.descriptionI18n[opts.targetLocale]!.length > 0);
       // Tags considered "done" if: alsoTags disabled (caller doesn't
       // care), OR star has no aiTags (nothing to translate), OR the
       // aiTagsI18n cache for this locale is populated. Empty/missing
@@ -287,13 +302,21 @@ export async function translateStars(
       // but desc was already done in a prior run), skip the desc chat
       // entirely — set descOK=true so the tags arm fires. Without this,
       // tag-backfill runs would re-burn the description token cost.
+      //
+      // R48 round-3 extension: also short-circuit when description is
+      // null/empty/whitespace. Such stars reach the worker (instead of
+      // noSource) only when alsoTags is on AND aiTags need translation;
+      // the goal is to fire the tags arm without trying to translate a
+      // non-existent description (which would also hit `star.description!`
+      // non-null-assertion and crash).
       let descOK = false;
+      const descEmpty = !star.description || star.description.trim().length === 0;
       const descAlreadyCached =
         !opts.forceRetranslate &&
         star.descriptionI18n &&
         typeof star.descriptionI18n[opts.targetLocale] === 'string' &&
         star.descriptionI18n[opts.targetLocale]!.length > 0;
-      if (descAlreadyCached) {
+      if (descEmpty || descAlreadyCached) {
         descOK = true;
       } else {
         try {

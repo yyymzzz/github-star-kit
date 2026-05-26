@@ -178,6 +178,89 @@ describe('translateStars — source-text filtering', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]!.id).toBe(1);
   });
+
+  it('R48 root cause: translates tags even when description is null/empty (regression — was "翻译 N 个" button stuck)', async () => {
+    // Real-world bug found in R48 round-3: user starred repos that have
+    // no GitHub description, ran auto-tag (which filled aiTags from name
+    // + topics + language), then clicked Translate. Pre-fix behavior:
+    //   - R48 R1 fixed untranslatedCount to count "desc OR tags missing"
+    //     → button correctly showed "翻译 9 个"
+    //   - BUT orchestrator's noSource judgment dropped any star with
+    //     empty description, regardless of aiTags status
+    //   → click → all 9 stars noSource → tagsTranslated=0
+    //   → setAllStarsForTrCount re-reads same data → count stays 9
+    //   → user sees button do nothing
+    //
+    // Contract after fix: noSource means "truly nothing to translate" —
+    // desc empty AND (tags empty OR alsoTags=false). When desc is empty
+    // but tags exist + alsoTags=true, the worker runs the tags arm only.
+    const starStore = new StarStoreMemory();
+    await starStore.upsertMany([
+      makeStar({
+        id: 1,
+        description: null,
+        aiTags: ['cli-tool', 'rust'],
+        aiTagsI18n: {},
+      }),
+      makeStar({
+        id: 2,
+        description: '   ',
+        aiTags: ['javascript', 'web-framework'],
+        aiTagsI18n: {},
+      }),
+      makeStar({
+        id: 3,
+        description: null,
+        aiTags: [],
+        aiTagsI18n: {},
+      }),
+    ]);
+    const { fn: updateStar, calls } = makeRecorder();
+    const chat = vi.fn(makeFakeChat((s) => `t:${s}`));
+    const result = await translateStars({
+      starStore,
+      chat,
+      updateStar,
+      targetLocale: 'zh-CN',
+    });
+    // Stars 1 + 2: tags translated. Star 3 stays noSource (no source at all).
+    expect(result.tagsTranslated).toBe(2);
+    expect(result.translated).toBe(0);
+    expect(result.noSourceText).toBe(1);
+    expect(chat).toHaveBeenCalledTimes(2);
+    expect(calls).toHaveLength(2);
+    expect(calls.every((c) => c.field === 'tags')).toBe(true);
+    expect(calls.map((c) => c.id).sort()).toEqual([1, 2]);
+  });
+
+  it('R48 root cause: respects alsoTags=false — empty-desc stars stay noSource (back-compat)', async () => {
+    // Mirror guard: when alsoTags is explicitly false, the new "tags
+    // make a star translatable" rule must NOT kick in. Otherwise we'd
+    // break legacy callers that only want descriptions translated.
+    const starStore = new StarStoreMemory();
+    await starStore.upsertMany([
+      makeStar({
+        id: 1,
+        description: null,
+        aiTags: ['rust', 'cli'],
+        aiTagsI18n: {},
+      }),
+    ]);
+    const { fn: updateStar, calls } = makeRecorder();
+    const chat = vi.fn(makeFakeChat((s) => `t:${s}`));
+    const result = await translateStars({
+      starStore,
+      chat,
+      updateStar,
+      targetLocale: 'zh-CN',
+      alsoTags: false,
+    });
+    expect(result.translated).toBe(0);
+    expect(result.tagsTranslated).toBe(0);
+    expect(result.noSourceText).toBe(1);
+    expect(chat).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
+  });
 });
 
 describe('translateStars — skip-cache + force re-translate', () => {
