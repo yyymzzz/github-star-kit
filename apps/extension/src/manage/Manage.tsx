@@ -968,27 +968,53 @@ export function Manage(): JSX.Element {
             style={styles.noteDialogForm}
             onSubmit={async (e) => {
               e.preventDefault();
-              // Re-read fresh row to avoid clobbering concurrent writes
-              // (R21 P0 + R22 race-fix patterns apply here too).
-              const { starStore } = await getStores();
-              const fresh = await starStore.get(noteEditing.starId);
-              if (fresh) {
-                const trimmed = noteEditing.draft.trim();
-                await starStore.upsertMany([
-                  {
-                    ...fresh,
-                    userNote: trimmed.length > 0 ? trimmed : null,
-                  },
-                ]);
-                setAllStars((prev) =>
-                  prev.map((s) =>
-                    s.id === noteEditing.starId
-                      ? { ...s, userNote: trimmed.length > 0 ? trimmed : null }
-                      : s
-                  )
-                );
+              // R48 蓝军 P1 (audit agent #3): note write was previously a
+              // bare read-then-write without the sync lock. If cron-sync
+              // fired concurrently, orchestrator's mergeLocalFields would
+              // read the OLD userNote and the subsequent star upsert
+              // overwrites the user's freshly-typed note. Same data-loss
+              // class as the R21 P0 "sync wipes i18n" bug. Wrap in the
+              // same withSyncLock pattern onTranslate / onPerRowDeepIndex
+              // use so the note write is serialized with any in-flight
+              // sync. If a lock conflict occurs, surface it to the user
+              // so they can retry without losing the typed text.
+              const starId = noteEditing.starId;
+              const trimmed = noteEditing.draft.trim();
+              try {
+                const lockOutcome = await withSyncLock(MANAGE_OWNER_ID, async () => {
+                  const { starStore } = await getStores();
+                  // Re-read fresh row to avoid clobbering concurrent writes
+                  // (R21 P0 + R22 race-fix patterns apply here too).
+                  const fresh = await starStore.get(starId);
+                  if (fresh) {
+                    await starStore.upsertMany([
+                      {
+                        ...fresh,
+                        userNote: trimmed.length > 0 ? trimmed : null,
+                      },
+                    ]);
+                    setAllStars((prev) =>
+                      prev.map((s) =>
+                        s.id === starId
+                          ? {
+                              ...s,
+                              userNote: trimmed.length > 0 ? trimmed : null,
+                            }
+                          : s
+                      )
+                    );
+                  }
+                });
+                if (!lockOutcome.ran) {
+                  // Sync is in progress — keep dialog open with typed text
+                  // intact so user can retry. Don't clear noteEditing.
+                  setError(t('sync.conflict'));
+                  return;
+                }
+                setNoteEditing(null);
+              } catch (err) {
+                setError(localizeError(err, t));
               }
-              setNoteEditing(null);
             }}
           >
             <h2 style={styles.noteDialogHeader}>

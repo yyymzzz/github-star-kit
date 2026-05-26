@@ -35,6 +35,8 @@
     "https://api.openai.com/*",
     "https://api.anthropic.com/*",
     "https://api.voyageai.com/*",
+    "https://api.siliconflow.cn/*",
+    "https://dashscope.aliyuncs.com/*",
     "http://localhost/*"
   ],
   "commands": {

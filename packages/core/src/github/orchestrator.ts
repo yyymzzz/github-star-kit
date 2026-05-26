@@ -150,10 +150,21 @@ export async function syncStarsWithStore(
   if (syncResult.notModified) {
     // ETag still valid — touch the cursor's updatedAt so the UI can show
     // "last checked X seconds ago" even when nothing changed.
+    // R48 蓝军 P1 (audit agent #3): also advance lastFullSyncAt when we
+    // would otherwise have triggered a full sync. GitHub's 304 is
+    // equivalent to "the entire list is unchanged" — the cleanup
+    // reconciliation that full mode does (deleting un-starred rows) is a
+    // no-op when nothing changed, so 304 fully satisfies the full-sync
+    // contract. Without this, `needFullSync` would stay true forever on
+    // a server that perpetually replies 304 (stable user / fast cron),
+    // causing every tick to take the heavier code path.
     if (prevCursor) {
       const refreshed: SyncCursor = {
         ...prevCursor,
         updatedAt: syncResult.fetchedAt,
+        lastFullSyncAt: needFullSync
+          ? syncResult.fetchedAt
+          : (prevCursor.lastFullSyncAt ?? null),
       };
       await cursorStore.set(refreshed);
     }

@@ -303,7 +303,65 @@ export function App(): JSX.Element {
     const trimmed = aiKeyDraft.trim();
     if (!trimmed) return;
     try {
-      const { kvStore } = await getStores();
+      const { kvStore, vectorStore, starStore } = await getStores();
+      const newPreset = AI_PRESETS[aiProviderDraft];
+
+      // R48 蓝军 P0 (audit agent #3): China-region presets (siliconflow /
+      // dashscope) are NOT in static host_permissions — only in
+      // optional_host_permissions per manifest. Auto-request the origin so
+      // first-time China users don't hit a silent CORS-style fetch failure
+      // on their first Sync/Translate. Same call is a no-op if the user
+      // already granted it. `chrome.permissions.request` requires a user
+      // gesture; Save-AI-Key is exactly that.
+      try {
+        const origin = `${new URL(newPreset.baseUrl).origin}/*`;
+        await chrome.permissions.request({ origins: [origin] });
+      } catch (permErr) {
+        // Non-fatal — the user can still grant later if the fetch fails;
+        // we don't want to block key save if Chrome's permission API
+        // misbehaves (e.g. in test environments).
+        console.warn('[starkit] host permission request failed:', permErr);
+      }
+
+      // R48 蓝军 P0 (audit agent #3): provider switch → dim mismatch. If
+      // user previously indexed with provider A (e.g. SiliconFlow bge-m3
+      // 1024-d) and now switches to provider B (e.g. OpenAI text-
+      // embedding-3-small 1536-d), the next search throws
+      // "Vector dim mismatch" from packages/vector/src/memory.ts:125 and
+      // the entire search returns nothing. Worse: even when dims match
+      // (DashScope text-embedding-v3 1024 vs bge-m3 1024) the semantic
+      // embeddings are incomparable — recall drops to noise.
+      //
+      // Fix: when the embedModel name changes vs the previously-saved
+      // provider, wipe the vector store + reset deepIndexed flags so a
+      // fresh "Build index" run repopulates with the new model's vectors.
+      // We preserve aiTags / userNote / descriptionI18n (locale-data, not
+      // vector-data) by only rewriting deepIndexed flags, not full rows.
+      const previousPreset =
+        aiProvider !== null && aiProvider in AI_PRESETS ? AI_PRESETS[aiProvider] : null;
+      const modelChanged =
+        previousPreset !== null && previousPreset.embedModel !== newPreset.embedModel;
+
+      if (modelChanged) {
+        // Clear ALL vectors (stars + code chunks both keyed off embedModel)
+        await vectorStore.clear();
+        memVecRef.current = new MemoryVectorStore();
+        // Reset deepIndexed flag on every star so the manage page re-shows
+        // the Deep Index button. Stars keep aiTags + userNote + i18n.
+        const refreshed = await starStore.list();
+        const toReset = refreshed
+          .filter((s) => s.deepIndexed)
+          .map((s) => ({ ...s, deepIndexed: false, lastDeepIndexedAt: null }));
+        if (toReset.length > 0) {
+          await starStore.upsertMany(toReset);
+        }
+        setIndexedCount(0);
+        setDeepIndexedCount(0);
+        // Wipe digest too — it was computed against the old model's centroid.
+        digestGenRef.current += 1;
+        setDigest(null);
+      }
+
       // Persist BOTH the key and the chosen preset atomically so the next
       // popup mount reads a consistent pair. If the user later switches
       // providers, they re-enter the new key + Save again.
@@ -318,7 +376,7 @@ export function App(): JSX.Element {
     } catch (err) {
       setError(localizeError(err, t));
     }
-  }, [aiKeyDraft, aiProviderDraft]);
+  }, [aiKeyDraft, aiProviderDraft, aiProvider, t]);
 
   const onClearAll = useCallback(async () => {
     try {
