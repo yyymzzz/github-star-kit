@@ -403,7 +403,19 @@ export function Manage(): JSX.Element {
         if (repoLang !== filters.language) return false;
       }
       if (lowerSearch) {
-        const hay = `${s.fullName} ${s.description ?? ''}`.toLowerCase();
+        // R48 R2: include localized fields in haystack so zh-CN users who
+        // searched "异步运行时" against a translated star actually match.
+        // Falls back gracefully when locale === 'en' or i18n is empty.
+        const localizedDesc =
+          locale !== 'en' && s.descriptionI18n?.[locale]
+            ? s.descriptionI18n[locale]
+            : '';
+        const localizedTagStr =
+          locale !== 'en' && s.aiTagsI18n?.[locale]
+            ? s.aiTagsI18n[locale]
+            : '';
+        const hay =
+          `${s.fullName} ${s.description ?? ''} ${localizedDesc} ${s.aiTags.join(' ')} ${localizedTagStr}`.toLowerCase();
         if (!hay.includes(lowerSearch)) return false;
       }
       if (filters.tags.size > 0) {
@@ -461,13 +473,22 @@ export function Manage(): JSX.Element {
 
   // ─── Translate: same content-translation pipeline as the popup ───────
   // Count derived live so locale switches update without re-fetching.
+  //
+  // R48 R1 (致命): also count stars where description IS translated but
+  // aiTags are NOT — without this the orchestrator's R21 tag-backfill
+  // path (`packages/core/src/translate.ts` translateStars) is permanently
+  // gated off because the button stops rendering, leaving a mix of
+  // Chinese description + English tags ("翻译不到位" user-visible symptom).
   const untranslatedCount = useMemo(() => {
     if (locale === 'en') return 0;
     let n = 0;
     for (const s of allStars) {
-      if (!s.description || s.description.trim().length === 0) continue;
-      if (s.descriptionI18n?.[locale]) continue;
-      n += 1;
+      const hasDescription = !!s.description && s.description.trim().length > 0;
+      const hasTags = s.aiTags.length > 0;
+      if (!hasDescription && !hasTags) continue;
+      const descMissing = hasDescription && !s.descriptionI18n?.[locale];
+      const tagsMissing = hasTags && !s.aiTagsI18n?.[locale];
+      if (descMissing || tagsMissing) n += 1;
     }
     return n;
   }, [allStars, locale]);
@@ -650,7 +671,7 @@ export function Manage(): JSX.Element {
           throw new Error(t('manage.malformedFullName', { name: star.fullName }));
         }
 
-        await indexRepoCode({
+        const result = await indexRepoCode({
           starStore,
           repoId: star.id,
           signal: rowAbort.signal,
@@ -674,46 +695,88 @@ export function Manage(): JSX.Element {
           getExisting: (id) => vectorStore.get(id),
         });
 
-        // R21 蓝军 round-2 MAJOR (subagent A): re-read the star from
-        // starStore BEFORE the upsert. The `star` parameter is captured
-        // by the row's click closure at render time; if a concurrent
-        // onTranslate updated descriptionI18n/aiTagsI18n between render
-        // and this click, the stale spread `{ ...star, deepIndexed: true }`
-        // would WIPE those freshly-translated fields — same data-loss
-        // class as the R21 P0 sync-wipes-i18n bug. Mirrors the read-
-        // then-merge pattern popup onAutoTag uses (App.tsx:625).
-        const fresh = await starStore.get(star.id);
-        if (fresh) {
-          // R36: stamp lastDeepIndexedAt so sync can invalidate on
-          // future pushedAt change (auto-reset deepIndexed=false).
-          await starStore.upsertMany([
-            {
-              ...fresh,
-              deepIndexed: true,
-              lastDeepIndexedAt: new Date().toISOString(),
-            },
-          ]);
-          setAllStars((prev) =>
-            prev.map((s) => (s.id === star.id ? { ...s, deepIndexed: true } : s))
-          );
-          // R27 UX: positive feedback — tells the user where to use the
-          // index. R28 蓝军 MAJOR #1: cancel any pending prior toast
-          // timer before scheduling a new one, so overlapping clicks
-          // don't race and prematurely clear a newer toast.
-          setSuccessToast(
-            t('manage.deepIndexDoneToast', { repo: fresh.fullName })
-          );
-          if (toastTimerRef.current !== null) {
-            clearTimeout(toastTimerRef.current);
+        // R48 P0 蓝军: mirror popup's App.tsx:848-887 guard. The per-row
+        // path previously discarded `result` and unconditionally marked
+        // `deepIndexed=true` — which means:
+        //   - repos whose languages aren't in DEFAULT_EXTENSIONS whitelist
+        //     (C++/Ruby/Swift/PHP/Kotlin/Scala/…) fetchRepoSource returns 0
+        //     files → result.indexed=0, chunks=0, failed=0 → IDB has no
+        //     code:N:* rows → search returns nothing — but row was marked
+        //     "deep-indexed" + success toast = silent false positive.
+        //   - API-key / rate-limit / dim-mismatch failure: every batch
+        //     catches into failed, indexed=0 → still marked "done", user
+        //     can't re-click to retry.
+        // Only flip the flag when at least one chunk landed.
+        if (result.indexed > 0) {
+          // R21 蓝军 round-2 MAJOR (subagent A): re-read the star from
+          // starStore BEFORE the upsert. The `star` parameter is captured
+          // by the row's click closure at render time; if a concurrent
+          // onTranslate updated descriptionI18n/aiTagsI18n between render
+          // and this click, the stale spread `{ ...star, deepIndexed: true }`
+          // would WIPE those freshly-translated fields — same data-loss
+          // class as the R21 P0 sync-wipes-i18n bug. Mirrors the read-
+          // then-merge pattern popup onAutoTag uses (App.tsx:625).
+          const fresh = await starStore.get(star.id);
+          if (fresh) {
+            // R36: stamp lastDeepIndexedAt so sync can invalidate on
+            // future pushedAt change (auto-reset deepIndexed=false).
+            await starStore.upsertMany([
+              {
+                ...fresh,
+                deepIndexed: true,
+                lastDeepIndexedAt: new Date().toISOString(),
+              },
+            ]);
+            setAllStars((prev) =>
+              prev.map((s) => (s.id === star.id ? { ...s, deepIndexed: true } : s))
+            );
+            // R27 UX: positive feedback — tells the user where to use the
+            // index. R28 蓝军 MAJOR #1: cancel any pending prior toast
+            // timer before scheduling a new one, so overlapping clicks
+            // don't race and prematurely clear a newer toast.
+            setSuccessToast(
+              t('manage.deepIndexDoneToast', { repo: fresh.fullName })
+            );
+            if (toastTimerRef.current !== null) {
+              clearTimeout(toastTimerRef.current);
+            }
+            toastTimerRef.current = setTimeout(() => {
+              setSuccessToast(null);
+              toastTimerRef.current = null;
+            }, 6000);
           }
-          toastTimerRef.current = setTimeout(() => {
-            setSuccessToast(null);
-            toastTimerRef.current = null;
-          }, 6000);
+          // else: star vanished (user un-starred during the run); do not
+          // synthesize from the stale closure. Caller's allStars will
+          // reflect the un-star on next sync — no UI inconsistency.
+        } else if (result.failed > 0 || result.chunks > 0) {
+          // chunks > 0 but indexed === 0 = every batch failed (API key /
+          // rate limit / dim mismatch / network).
+          // chunks === 0 + failed === 0 = whitelist mismatch (handled
+          // below by leaving the flag off + surfacing reason).
+          const reason = result.lastErrorMessage
+            ? `: ${result.lastErrorMessage}`
+            : '';
+          throw new Error(
+            t('deepIndex.zeroChunks', {
+              fullName: star.fullName,
+              failed: result.failed,
+              chunks: result.chunks,
+              reason,
+            })
+          );
+        } else {
+          // chunks === 0 && failed === 0 → fetchRepoSource returned 0
+          // files (e.g. C++/Ruby repo, language not in whitelist). Surface
+          // this with the same i18n key — UI shows zero-chunks reason.
+          throw new Error(
+            t('deepIndex.zeroChunks', {
+              fullName: star.fullName,
+              failed: 0,
+              chunks: 0,
+              reason: ': no source files matched the language whitelist',
+            })
+          );
         }
-        // else: star vanished (user un-starred during the run); do not
-        // synthesize from the stale closure. Caller's allStars will
-        // reflect the un-star on next sync — no UI inconsistency.
         });
         // R34: lock held by another sync source. Surface the conflict.
         if (!lockOutcome.ran) {
@@ -1400,6 +1463,19 @@ function CompactRow(props: {
     locale !== 'en' && star.descriptionI18n?.[locale]
       ? star.descriptionI18n[locale]!
       : star.description;
+  // R48 R3: use the same displayTags derivation as ListRow / Card so the
+  // tag-count chip reflects the post-translation count. Previously it
+  // showed the raw `star.aiTags.length`, which diverged from the visible
+  // tag chips in ListRow/Card after translation split tags differently.
+  const localizedRaw =
+    locale !== 'en' && star.aiTagsI18n?.[locale] ? star.aiTagsI18n[locale] : null;
+  const displayTags =
+    localizedRaw && localizedRaw.length > 0
+      ? localizedRaw
+          .split(/[,\n]/)
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0)
+      : star.aiTags;
   const hasNote = star.userNote !== null && star.userNote.length > 0;
   return (
     <div style={styles.compactRow}>
@@ -1416,8 +1492,8 @@ function CompactRow(props: {
       <div style={styles.compactMetaGroup}>
         {star.language && <span style={styles.lang}>{star.language}</span>}
         <span style={styles.stars}>★ {star.stargazersCount.toLocaleString()}</span>
-        {star.aiTags.length > 0 && (
-          <span style={styles.compactTagCount}>#{star.aiTags.length}</span>
+        {displayTags.length > 0 && (
+          <span style={styles.compactTagCount}>#{displayTags.length}</span>
         )}
         {/* R38: note icon — filled when note exists, faded when empty. */}
         <button

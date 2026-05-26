@@ -534,13 +534,20 @@ export function App(): JSX.Element {
   // needed" — we assume GitHub descriptions are English-default; if the
   // user's UI locale IS English, the original is what they want anyway.
   // Recomputes when locale changes (drives the button label + visibility).
+  // R48 R1 (致命) mirror: include tag-only-missing stars so the orchestrator
+  // R21 tag-backfill path can be reached. Symptom this fixes: user sees
+  // Chinese description but English tags ("翻译不到位"), button doesn't
+  // re-appear so they can't retry.
   const untranslatedCount = useMemo(() => {
     if (locale === 'en') return 0;
     let n = 0;
     for (const s of allStarsForTrCount) {
-      if (!s.description || s.description.trim().length === 0) continue;
-      if (s.descriptionI18n?.[locale]) continue;
-      n += 1;
+      const hasDescription = !!s.description && s.description.trim().length > 0;
+      const hasTags = s.aiTags.length > 0;
+      if (!hasDescription && !hasTags) continue;
+      const descMissing = hasDescription && !s.descriptionI18n?.[locale];
+      const tagsMissing = hasTags && !s.aiTagsI18n?.[locale];
+      if (descMissing || tagsMissing) n += 1;
     }
     return n;
   }, [allStarsForTrCount, locale]);

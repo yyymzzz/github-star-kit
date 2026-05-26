@@ -4,7 +4,9 @@
     "loading": "読み込み中…",
     "neverSynced": "未同期",
     "starred": "スター",
-    "pushed": "プッシュ"
+    "pushed": "プッシュ",
+    "cancel": "キャンセル",
+    "cancelled": "キャンセルしました。"
   },
   "header": {
     "appName": "GitHub Star Kit",

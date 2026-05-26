@@ -4,7 +4,9 @@
     "loading": "로드 중…",
     "neverSynced": "동기화되지 않음",
     "starred": "스타",
-    "pushed": "푸시"
+    "pushed": "푸시",
+    "cancel": "취소",
+    "cancelled": "취소되었습니다."
   },
   "header": {
     "appName": "GitHub Star Kit",

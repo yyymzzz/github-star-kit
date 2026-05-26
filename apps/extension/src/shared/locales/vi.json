@@ -4,7 +4,9 @@
     "loading": "đang tải…",
     "neverSynced": "chưa đồng bộ",
     "starred": "đã star",
-    "pushed": "đã push"
+    "pushed": "đã push",
+    "cancel": "Huỷ",
+    "cancelled": "Đã huỷ."
   },
   "header": {
     "appName": "GitHub Star Kit",
