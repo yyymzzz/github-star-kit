@@ -73,7 +73,8 @@
     "unrankedSuffix": "(+{n} sin clasificar, aún no embebidos)",
     "noActivity": "Sin actividad reciente.",
     "noActivityHelp": "Ningún repo marcado se ha actualizado en los últimos 7 días.",
-    "backToRecent": "← Recientes"
+    "backToRecent": "← Recientes",
+    "summarizing": "Cargando resúmenes de IA…"
   },
   "code": {
     "badge": "código",

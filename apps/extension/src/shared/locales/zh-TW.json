@@ -73,7 +73,8 @@
     "unrankedSuffix": "(還有 {n} 個未排序,因尚未嵌入)",
     "noActivity": "近期無活動。",
     "noActivityHelp": "你 star 的倉庫中,過去 7 天沒有任何推送。",
-    "backToRecent": "← 返回最近"
+    "backToRecent": "← 返回最近",
+    "summarizing": "正在生成 AI 摘要…"
   },
   "code": {
     "badge": "程式碼",

@@ -73,7 +73,8 @@
     "unrankedSuffix": "(+{n} sem classificação, ainda não embedados)",
     "noActivity": "Sem atividade recente.",
     "noActivityHelp": "Nenhum favorito teve push nos últimos 7 dias.",
-    "backToRecent": "← Recentes"
+    "backToRecent": "← Recentes",
+    "summarizing": "Carregando resumos da IA…"
   },
   "code": {
     "badge": "código",

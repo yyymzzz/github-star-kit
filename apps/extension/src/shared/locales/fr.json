@@ -73,7 +73,8 @@
     "unrankedSuffix": "(+{n} non classés, pas encore plongés)",
     "noActivity": "Aucune activité récente.",
     "noActivityHelp": "Aucun dépôt favori n'a été poussé ces 7 derniers jours.",
-    "backToRecent": "← Récents"
+    "backToRecent": "← Récents",
+    "summarizing": "Chargement des résumés IA…"
   },
   "code": {
     "badge": "code",

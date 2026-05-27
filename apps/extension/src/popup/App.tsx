@@ -208,6 +208,15 @@ export function App(): JSX.Element {
     null
   );
   const [digest, setDigest] = useState<DigestResult | null>(null);
+  // R56: feedback state for the digest pipeline. Without this, clicking
+  // Weekly digest is a several-second silence — user reported "looks like
+  // nothing happened". Two phases:
+  //   'ranking'     — generateDigest() running (cosine + recency boost)
+  //   'summarizing' — ranked entries on screen, LLM hooks loading in
+  //   null           — idle or done
+  const [digestPhase, setDigestPhase] = useState<
+    'ranking' | 'summarizing' | null
+  >(null);
 
   // The popup-lifetime hot index. Pre-filled from IDB at mount; mutated by
   // every embed pass (dual-upsert) so it stays in sync without re-loading.
@@ -994,6 +1003,8 @@ export function App(): JSX.Element {
       return;
     }
     setError(null);
+    // R56: instant feedback before the multi-second pipeline starts.
+    setDigestPhase('ranking');
     // Take a new generation token. Any prior in-flight summarize that's
     // still running at write-time will see its captured generation no
     // longer match and abort its setDigest write.
@@ -1026,6 +1037,14 @@ export function App(): JSX.Element {
       setDigest(result);
       setQuery(''); // Search query takes precedence; clear it so digest shows.
       setSearchResults([]);
+      // R56: ranking landed — flip the phase so the user sees the entries
+      // appear AND a "loading AI summaries" notice instead of complete
+      // silence during the next 3-10s of LLM round-trips.
+      setDigestPhase(
+        aiKey && aiProvider && result.entries.length > 0
+          ? 'summarizing'
+          : null
+      );
 
       // W4 V1: layer the LLM "why this matters" hook on top of the ranking.
       // Async (popup shows the ranked list immediately; summaries fill in
@@ -1063,10 +1082,15 @@ export function App(): JSX.Element {
         } catch (sumErr) {
           // Summary layer is best-effort. Log + leave ranked list as-is.
           console.warn('[starkit] digest summaries failed:', sumErr);
+        } finally {
+          // R56: clear the "summarizing" notice whether the LLM succeeded
+          // or the catch arm fired (don't leave a stuck spinner).
+          if (digestGenRef.current === myGen) setDigestPhase(null);
         }
       }
     } catch (err) {
       setError(localizeError(err, t));
+      setDigestPhase(null);
     }
   }, [indexedCount, aiKey, aiProvider]);
 
@@ -1075,6 +1099,7 @@ export function App(): JSX.Element {
     // close-then-reopen cycle should never write back over the new view.
     digestGenRef.current += 1;
     setDigest(null);
+    setDigestPhase(null); // R56: clear loading state on close
   }, []);
 
   // ─── Search ───────────────────────────────────────────────────────────
@@ -1412,13 +1437,25 @@ export function App(): JSX.Element {
               {t('translate.button', { n: untranslatedCount })}
             </button>
           )}
-          {indexedCount > 0 && !digest && (
+          {indexedCount > 0 && !digest && digestPhase !== 'ranking' && (
             <button
               type="button"
               onClick={() => void onShowDigest()}
               style={{ ...styles.secondaryButton, flex: 1 }}
             >
               {t('digest.button')}
+            </button>
+          )}
+          {indexedCount > 0 && !digest && digestPhase === 'ranking' && (
+            // R56: button replaced by a disabled "loading" placeholder
+            // during the 1-3s rank phase so the user sees their click
+            // registered. Generic loading text reuses common.loading.
+            <button
+              type="button"
+              disabled
+              style={{ ...styles.secondaryButton, flex: 1, opacity: 0.6 }}
+            >
+              {t('digest.button')} · {t('common.loading')}
             </button>
           )}
           {knownCount > 0 && deepIndexState === 'idle' && (
@@ -1579,6 +1616,13 @@ export function App(): JSX.Element {
               {t('digest.backToRecent')}
             </button>
           </div>
+          {/* R56: persistent strip showing "AI summaries loading…" so the
+              user knows the entries' "why this matters" hooks will fill in
+              shortly (typically 3-10s). Auto-clears in onShowDigest's
+              finally block when summaries land (or fail). */}
+          {digestPhase === 'summarizing' && (
+            <div style={styles.notice}>{t('digest.summarizing')}</div>
+          )}
           {digest.entries.length === 0 ? (
             <section style={styles.card}>
               <strong>{t('digest.noActivity')}</strong>

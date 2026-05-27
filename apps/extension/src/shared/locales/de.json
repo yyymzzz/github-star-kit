@@ -73,7 +73,8 @@
     "unrankedSuffix": "(+{n} ohne Rang, noch nicht eingebettet)",
     "noActivity": "Keine kürzliche Aktivität.",
     "noActivityHelp": "Keine markierten Repos wurden in den letzten 7 Tagen gepusht.",
-    "backToRecent": "← Zuletzt"
+    "backToRecent": "← Zuletzt",
+    "summarizing": "KI-Zusammenfassungen werden geladen…"
   },
   "code": {
     "badge": "Code",

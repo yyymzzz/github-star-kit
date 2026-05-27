@@ -73,7 +73,8 @@
     "unrankedSuffix": "(+{n} unranked, not yet embedded)",
     "noActivity": "No recent activity.",
     "noActivityHelp": "No starred repos have been pushed in the last 7 days.",
-    "backToRecent": "← Recent"
+    "backToRecent": "← Recent",
+    "summarizing": "Loading AI summaries…"
   },
   "code": {
     "badge": "code",

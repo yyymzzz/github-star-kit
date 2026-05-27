@@ -73,7 +73,8 @@
     "unrankedSuffix": "(아직 임베딩되지 않은 {n}개는 순위 외)",
     "noActivity": "최근 활동이 없습니다.",
     "noActivityHelp": "스타한 저장소 중 지난 7일 동안 푸시된 것이 없습니다.",
-    "backToRecent": "← 최근"
+    "backToRecent": "← 최근",
+    "summarizing": "AI 요약 생성 중…"
   },
   "code": {
     "badge": "코드",

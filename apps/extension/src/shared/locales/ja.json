@@ -73,7 +73,8 @@
     "unrankedSuffix": "(他 {n} 件は未埋め込みのため未ランク)",
     "noActivity": "最近のアクティビティはありません。",
     "noActivityHelp": "あなたがスター済みのリポジトリで、過去 7 日間のプッシュはありません。",
-    "backToRecent": "← 最近のスター"
+    "backToRecent": "← 最近のスター",
+    "summarizing": "AI 要約を生成中…"
   },
   "code": {
     "badge": "コード",

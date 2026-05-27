@@ -73,7 +73,8 @@
     "unrankedSuffix": "(+{n} chưa xếp hạng, chưa embed)",
     "noActivity": "Không có hoạt động gần đây.",
     "noActivityHelp": "Không có repo nào trong stars được push trong 7 ngày qua.",
-    "backToRecent": "← Gần đây"
+    "backToRecent": "← Gần đây",
+    "summarizing": "Đang tải tóm tắt AI…"
   },
   "code": {
     "badge": "mã",

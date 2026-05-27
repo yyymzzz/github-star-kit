@@ -73,7 +73,8 @@
     "unrankedSuffix": "(+{n} без ранга, не эмбеддированы)",
     "noActivity": "Нет недавней активности.",
     "noActivityHelp": "В отмеченных репо не было push за последние 7 дней.",
-    "backToRecent": "← Недавние"
+    "backToRecent": "← Недавние",
+    "summarizing": "Загрузка кратких сводок ИИ…"
   },
   "code": {
     "badge": "код",
