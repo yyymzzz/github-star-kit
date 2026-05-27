@@ -88,7 +88,11 @@ export type {
 export {
   buildTranslateSystemPrompt,
   buildTranslateUserPrompt,
+  descriptionNeedsTranslation,
+  isLikelyInLocale,
   parseTranslateResponse,
+  starNeedsTranslation,
+  tagsNeedTranslation,
   translateStars,
   TRANSLATE_LOCALE_NAMES,
 } from './translate/index.js';

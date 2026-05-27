@@ -22,3 +22,12 @@ export {
   type TranslateStarsResult,
   type UpdateStarTranslationFn,
 } from './orchestrator.js';
+// R50: single source of truth for "needs translation" — UI counters,
+// orchestrator skip-loop, and manage page all import from here to stay in
+// lockstep. Without this they diverged → 5th-iteration "翻译 N 个" stuck bug.
+export {
+  descriptionNeedsTranslation,
+  isLikelyInLocale,
+  starNeedsTranslation,
+  tagsNeedTranslation,
+} from './needs.js';

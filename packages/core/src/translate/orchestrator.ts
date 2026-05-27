@@ -20,6 +20,11 @@ import type { StarStore } from '../storage/types.js';
 import { parseTagResponse } from '../tagging/text.js';
 import type { ChatBatchFn } from '../tagging/orchestrator.js';
 import {
+  descriptionNeedsTranslation,
+  isLikelyInLocale,
+  tagsNeedTranslation,
+} from './needs.js';
+import {
   buildTagsTranslateSystemPrompt,
   buildTagsTranslateUserPrompt,
   buildTranslateSystemPrompt,
@@ -197,52 +202,111 @@ export async function translateStars(
   const noSource: StarredRepo[] = [];
   const toTranslate: StarredRepo[] = [];
   // R21 蓝军 round-2 fix: hoisted to top so both the skip-loop and the
-  // worker's tags arm reference the same resolved value (was duplicated
-  // between :199 and :278 in the post-R21 commit — same expression,
-  // different binding, easy regression vector).
+  // worker's tags arm reference the same resolved value.
   const alsoTags = opts.alsoTags ?? true;
   let skipped = 0;
+  // R50 backfill counters — stars whose aiTags / description are already in
+  // the target locale's script (e.g. user ran auto-tag on a zh model so
+  // aiTags arrive as ["金融分析", "AI交易"]). These get their cache populated
+  // with the source text directly — zero LLM cost, zero token spend, but
+  // the next untranslatedCount tick correctly drops to zero.
+  const backfilledTagIds: number[] = [];
+  const backfilledDescIds: number[] = [];
+
   for (const star of allStars) {
-    // R48 round-3 P0 fix ("翻译 N 个" button stuck):
-    // Previously this dropped any star with empty description into
-    // noSource and `continue`d, regardless of whether aiTags needed
-    // translating. R48 R1 had widened untranslatedCount to count
-    // tag-only-missing stars → button correctly said "翻译 9 个" — but
-    // those 9 stars were still being filtered out here, so clicking did
-    // nothing. New invariant: noSource means "truly nothing to do" —
-    // desc is empty AND (alsoTags is off OR aiTags is empty). When desc
-    // is empty but aiTags need translation, the star enters the worker
-    // and only the tags arm fires (desc arm short-circuits at descEmpty).
     const descEmpty = !star.description || star.description.trim().length === 0;
     const hasTagsToTranslate = alsoTags && star.aiTags.length > 0;
+
+    // noSource = "truly nothing to do this run": no desc to translate AND
+    // no tags to translate (either because alsoTags is off or aiTags is
+    // empty). R48 round-3 widened this from "desc empty" to "desc empty
+    // AND no tag work" so tag-only-missing stars actually enter the worker.
     if (descEmpty && !hasTagsToTranslate) {
       noSource.push(star);
       continue;
     }
-    if (!opts.forceRetranslate) {
-      // descCached treats "desc empty" as a no-op success (nothing to
-      // translate equals already translated). Otherwise the cached check.
-      const descCached =
-        descEmpty ||
-        (star.descriptionI18n &&
-          typeof star.descriptionI18n[opts.targetLocale] === 'string' &&
-          star.descriptionI18n[opts.targetLocale]!.length > 0);
-      // Tags considered "done" if: alsoTags disabled (caller doesn't
-      // care), OR star has no aiTags (nothing to translate), OR the
-      // aiTagsI18n cache for this locale is populated. Empty/missing
-      // cache entry means "needs to be (re-)translated".
-      const tagsDone =
-        !alsoTags ||
-        star.aiTags.length === 0 ||
-        (star.aiTagsI18n &&
-          typeof star.aiTagsI18n[opts.targetLocale] === 'string' &&
-          star.aiTagsI18n[opts.targetLocale]!.length > 0);
-      if (descCached && tagsDone) {
-        skipped += 1;
-        continue;
-      }
+
+    if (opts.forceRetranslate) {
+      // forceRetranslate overrides the heuristic — user explicitly asked for
+      // a fresh chat call. Push everything that has content.
+      toTranslate.push(star);
+      continue;
+    }
+
+    // R50 root-cause fix: use the shared `needsTranslation` helpers so the
+    // skip-loop, the UI counter, and the UI render all agree on what
+    // "translated" means. The OLD logic only checked cache presence, which
+    // diverged from the UI render's `localizedRaw || star.aiTags` fallback
+    // → user saw Chinese tags but counter said "translate 9 more" forever.
+    //
+    // KEY: when content is already in the target locale (CJK / Cyrillic /
+    // Hangul detected by isLikelyInLocale), we backfill the cache from the
+    // source for free — no chat call, no tokens — so the next render +
+    // count tick is consistent and the count drops.
+    const descNeeds = !descEmpty && descriptionNeedsTranslation(star, opts.targetLocale);
+    const tagsNeeds = alsoTags && tagsNeedTranslation(star, opts.targetLocale);
+
+    // Backfill candidates: content present + already in locale script + cache empty
+    const descCacheEmpty =
+      !star.descriptionI18n?.[opts.targetLocale] ||
+      star.descriptionI18n[opts.targetLocale]!.length === 0;
+    const descBackfill =
+      !descEmpty &&
+      !descNeeds &&
+      descCacheEmpty &&
+      isLikelyInLocale(star.description, opts.targetLocale);
+
+    const tagsCacheEmpty =
+      !star.aiTagsI18n?.[opts.targetLocale] ||
+      star.aiTagsI18n[opts.targetLocale]!.length === 0;
+    const tagsBackfill =
+      hasTagsToTranslate &&
+      !tagsNeeds &&
+      tagsCacheEmpty &&
+      isLikelyInLocale(star.aiTags.join(' '), opts.targetLocale);
+
+    if (descBackfill) backfilledDescIds.push(star.id);
+    if (tagsBackfill) backfilledTagIds.push(star.id);
+
+    if (!descNeeds && !tagsNeeds) {
+      skipped += 1;
+      continue;
     }
     toTranslate.push(star);
+  }
+
+  // Apply the backfill writes synchronously before the worker starts. These
+  // are tiny IDB writes (a single locale key per star) so we batch await
+  // them; downstream cost is dominated by the chat calls in toTranslate.
+  for (const id of backfilledTagIds) {
+    const star = allStars.find((s) => s.id === id);
+    if (!star) continue;
+    try {
+      await opts.updateStar(
+        id,
+        opts.targetLocale,
+        star.aiTags.join(', '),
+        'tags'
+      );
+    } catch {
+      // Backfill is best-effort — if the store rejects, the cache stays
+      // empty and the user can re-trigger by clicking translate again.
+      // No need to abort the main run for a backfill failure.
+    }
+  }
+  for (const id of backfilledDescIds) {
+    const star = allStars.find((s) => s.id === id);
+    if (!star || !star.description) continue;
+    try {
+      await opts.updateStar(
+        id,
+        opts.targetLocale,
+        star.description,
+        'description'
+      );
+    } catch {
+      // Same best-effort rationale as tags backfill above.
+    }
   }
 
   let translated = 0;

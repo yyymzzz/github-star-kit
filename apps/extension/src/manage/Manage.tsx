@@ -37,6 +37,7 @@ import {
   formatRelativeTime,
   indexRepoCode,
   computeInterestProfile,
+  starNeedsTranslation,
   translateStars,
   type StarredRepo,
 } from '@starkit/core';
@@ -479,16 +480,16 @@ export function Manage(): JSX.Element {
   // path (`packages/core/src/translate.ts` translateStars) is permanently
   // gated off because the button stops rendering, leaving a mix of
   // Chinese description + English tags ("翻译不到位" user-visible symptom).
+  // R50 mirror (popup App.tsx:599): use the shared starNeedsTranslation
+  // helper so the counter agrees with the orchestrator skip-loop and the
+  // UI render's `displayTags` fallback. Without this they diverge and the
+  // "翻译 N 个" button gets stuck on stars whose aiTags are ALREADY in
+  // the user's locale (zh-LLM auto-tagged repos).
   const untranslatedCount = useMemo(() => {
     if (locale === 'en') return 0;
     let n = 0;
     for (const s of allStars) {
-      const hasDescription = !!s.description && s.description.trim().length > 0;
-      const hasTags = s.aiTags.length > 0;
-      if (!hasDescription && !hasTags) continue;
-      const descMissing = hasDescription && !s.descriptionI18n?.[locale];
-      const tagsMissing = hasTags && !s.aiTagsI18n?.[locale];
-      if (descMissing || tagsMissing) n += 1;
+      if (starNeedsTranslation(s, locale)) n += 1;
     }
     return n;
   }, [allStars, locale]);
