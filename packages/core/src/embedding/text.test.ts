@@ -127,3 +127,46 @@ describe('contentHash', () => {
     expect(h.length).toBeLessThanOrEqual(8); // 32-bit unsigned hex max
   });
 });
+
+describe('R53 — buildStarEmbeddingInput truncation', () => {
+  it('caps composed input at 2000 chars (prevents per-input 413)', () => {
+    // User reported: 2 stars persistently failing 413 after R52 split
+    // reduced them to single inputs. Root cause: the assembled string
+    // exceeded SiliconFlow's per-request body cap. Defense: clamp at
+    // build time so no input ever leaves orchestrator over 2000 chars.
+    const longDesc = 'x'.repeat(5000);
+    const input = buildStarEmbeddingInput(
+      makeStar({
+        fullName: 'foo/giant-readme',
+        description: longDesc,
+      })
+    );
+    expect(input.length).toBeLessThanOrEqual(2000);
+    expect(input.startsWith('foo/giant-readme')).toBe(true);
+  });
+
+  it('does NOT truncate normal-sized descriptions (typical case)', () => {
+    const input = buildStarEmbeddingInput(
+      makeStar({
+        fullName: 'tokio-rs/tokio',
+        description: 'Async runtime for Rust.',
+        language: 'Rust',
+        topics: ['async', 'rust'],
+      })
+    );
+    expect(input).toContain('tokio-rs/tokio');
+    expect(input).toContain('Async runtime');
+    expect(input).toContain('language: Rust');
+    expect(input).toContain('topics: async, rust');
+    expect(input.length).toBeLessThan(200);
+  });
+
+  it('contentHash incorporates the truncation (same hash for tail differences past cap)', () => {
+    // Force the differentiating bytes well past the 2000-char cap so the
+    // truncation strictly removes them. Two descriptions identical for the
+    // first ~5000 chars and differing only at positions > cap → same hash.
+    const a = makeStar({ id: 1, description: 'a'.repeat(5000) + 'TAIL_A' });
+    const b = makeStar({ id: 1, description: 'a'.repeat(5000) + 'TAIL_B' });
+    expect(contentHash(a)).toBe(contentHash(b));
+  });
+});
