@@ -434,6 +434,142 @@ describe('embedStars — input validation', () => {
   });
 });
 
+describe('embedStars — R52 adaptive batch split on bad_request (413)', () => {
+  /**
+   * User-reported regression: SiliconFlow returned HTTP 413 (Payload Too
+   * Large) for batches of 32 stars → orchestrator counted all 32 as
+   * failed and surfaced 0 embedded. Fix: when a batch fails with
+   * AIError.kind === 'bad_request', recursively halve and retry until
+   * either each half succeeds or a single-input batch still fails (true
+   * permanent error).
+   */
+  function makeAIError(kind: string, message: string) {
+    const e: Error & { kind: string } = Object.assign(
+      new Error(message),
+      { kind }
+    );
+    return e;
+  }
+
+  it('splits a 4-batch that 413s into 2+2 then succeeds → all 4 embedded', async () => {
+    const starStore = new StarStoreMemory();
+    await starStore.upsertMany([
+      makeStar({ id: 1 }),
+      makeStar({ id: 2 }),
+      makeStar({ id: 3 }),
+      makeStar({ id: 4 }),
+    ]);
+    const { upsert, map } = makeFakeIndex();
+
+    // Embed fn fails on size-4 calls, succeeds on size-2 (and smaller).
+    let calls = 0;
+    const embed = async (inputs: ReadonlyArray<string>) => {
+      calls += 1;
+      if (inputs.length > 2) {
+        throw makeAIError('bad_request', '413 Payload Too Large');
+      }
+      return {
+        vectors: inputs.map(() => [0.1, 0.2, 0.3]),
+        model: 'test-embed',
+        inputTokens: inputs.length * 10,
+      };
+    };
+
+    const result = await embedStars({
+      starStore,
+      embed,
+      upsert,
+      batchSize: 4,
+    });
+
+    expect(result.embedded).toBe(4);
+    expect(result.failed).toBe(0);
+    expect(map.size).toBe(4);
+    // 1 attempt at size 4 (fails) + 2 attempts at size 2 (succeed) = 3 total
+    expect(calls).toBe(3);
+  });
+
+  it('splits all the way to size 1 if needed, only fails the truly impossible', async () => {
+    const starStore = new StarStoreMemory();
+    await starStore.upsertMany([makeStar({ id: 1 }), makeStar({ id: 2 })]);
+    const { upsert, map } = makeFakeIndex();
+
+    // Fails for size > 1, succeeds for size 1. Both stars should embed
+    // individually.
+    const embed = async (inputs: ReadonlyArray<string>) => {
+      if (inputs.length > 1) {
+        throw makeAIError('bad_request', '413');
+      }
+      return {
+        vectors: inputs.map(() => [0.5]),
+        model: 'test',
+        inputTokens: 1,
+      };
+    };
+
+    const result = await embedStars({
+      starStore,
+      embed,
+      upsert,
+      batchSize: 2,
+    });
+    expect(result.embedded).toBe(2);
+    expect(result.failed).toBe(0);
+    expect(map.size).toBe(2);
+  });
+
+  it('permanent bad_request at size 1 → counts as failed (no infinite split)', async () => {
+    const starStore = new StarStoreMemory();
+    await starStore.upsertMany([makeStar({ id: 1 })]);
+    const { upsert } = makeFakeIndex();
+
+    const embed = async () => {
+      throw makeAIError('bad_request', 'input too long even at size 1');
+    };
+
+    const result = await embedStars({
+      starStore,
+      embed,
+      upsert,
+      batchSize: 1,
+    });
+    expect(result.embedded).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(result.failedStarIds).toEqual([1]);
+    expect(result.lastErrorMessage).toContain('input too long');
+  });
+
+  it('non-bad_request errors do NOT trigger split (would compound retry waste)', async () => {
+    const starStore = new StarStoreMemory();
+    await starStore.upsertMany([
+      makeStar({ id: 1 }),
+      makeStar({ id: 2 }),
+      makeStar({ id: 3 }),
+      makeStar({ id: 4 }),
+    ]);
+    const { upsert } = makeFakeIndex();
+
+    let calls = 0;
+    const embed = async () => {
+      calls += 1;
+      throw makeAIError('auth', '401 Unauthorized');
+    };
+
+    const result = await embedStars({
+      starStore,
+      embed,
+      upsert,
+      batchSize: 4,
+    });
+    expect(result.failed).toBe(4);
+    // Auth error should fail once per batch (1 call here, since all 4 in one
+    // batch). NOT 7 (1 + 2 + 4 from splits) — split is bad_request-only.
+    // callWithRetry may add its own retries but only for transient kinds;
+    // auth is permanent so it fires exactly once per attempt.
+    expect(calls).toBe(1);
+  });
+});
+
 /**
  * Integration-shape regression — locks down the VectorLookupFn / VectorUpsertFn
  * type contract against the actual @starkit/vector `VectorRow` shape.

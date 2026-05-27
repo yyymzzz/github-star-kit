@@ -166,8 +166,19 @@ export interface EmbedStarsResult {
   readonly lastErrorMessage: string | null;
 }
 
-/** Default batch size — see EmbedStarsOptions.batchSize for rationale. */
-const DEFAULT_BATCH_SIZE = 32;
+/**
+ * Default batch size — see EmbedStarsOptions.batchSize for rationale.
+ *
+ * R52: lowered from 32 → 16 after user-reported HTTP 413 on SiliconFlow
+ * (zh-region embed provider). Most providers handle 32 fine, but national
+ * CDN limits and provider-side per-request size caps fail before reaching
+ * the model. 16 is a conservative middle ground — OpenAI / Voyage absorb
+ * it without latency impact (they batch up to 2048 inputs anyway), and
+ * SiliconFlow / DashScope users get a successful first try. The adaptive
+ * split path in `tryAttempt` further halves on per-batch 413s as a safety
+ * net for whatever size still trips a future provider's limit.
+ */
+const DEFAULT_BATCH_SIZE = 16;
 
 /**
  * Run one full embed pass over the starStore.
@@ -279,74 +290,73 @@ export async function embedStars(
       continue;
     }
 
-    try {
-      // R20 蓝军 fix: wrap embed in callWithRetry. The v1 catch only matched
-      // err.name === 'AbortError' || 'TimeoutError' — but AIError sets
-      // name='AIError' (packages/ai/src/errors.ts:32), so every transient
-      // AIError (rate_limit/timeout/server/network/parse) silently turned
-      // into `failed += toEmbed.length` with zero retry. The shared helper
-      // duck-types on `err.kind` and retries up to 3x with exp-backoff.
-      const embedResult = await callWithRetry(
-        () => opts.embed(toEmbed.map((x) => x.input), opts.signal),
-        opts.signal ? { signal: opts.signal } : {}
-      );
-
-      // Re-check abort RIGHT AFTER embed returns. If the signal aborted while
-      // the call was in flight and the provider honored it, we already threw;
-      // if the provider IGNORED the signal, we'd otherwise upsert a batch the
-      // user asked us to abandon. This catches the lazy-provider case.
-      if (opts.signal?.aborted) {
-        throw new DOMException('embedStars aborted', 'AbortError');
-      }
-
-      // Provider contract sanity: vectors[i] corresponds to inputs[i]. A
-      // length mismatch means the provider misaligned the response — we'd
-      // upsert wrong vectors against wrong ids. Fail the batch loudly
-      // rather than silently corrupt the index.
-      if (embedResult.vectors.length !== toEmbed.length) {
-        throw new Error(
-          `embedStars: provider returned ${embedResult.vectors.length} vectors for ${toEmbed.length} inputs`
+    // R52 adaptive split: 413 / 400 (Payload Too Large + Bad Request) from
+    // China-region embed providers (SiliconFlow / DashScope) hits when a
+    // batch's JSON body exceeds their per-request size cap. The user reported
+    // "索引已建立, 32 个批次失败 (0 已嵌入): HTTP 413" — every batch failed.
+    // Fix: recursively halve a batch whose AIError.kind === 'bad_request'
+    // until either each half succeeds or we hit size 1 (true permanent fail).
+    // No-op for non-413 errors — they still take the original single-attempt
+    // path so retries don't pile on transient errors callWithRetry already
+    // handled.
+    const tryAttempt = async (
+      items: ReadonlyArray<typeof toEmbed[number]>
+    ): Promise<void> => {
+      try {
+        const embedResult = await callWithRetry(
+          () => opts.embed(items.map((x) => x.input), opts.signal),
+          opts.signal ? { signal: opts.signal } : {}
         );
+        if (opts.signal?.aborted) {
+          throw new DOMException('embedStars aborted', 'AbortError');
+        }
+        if (embedResult.vectors.length !== items.length) {
+          throw new Error(
+            `embedStars: provider returned ${embedResult.vectors.length} vectors for ${items.length} inputs`
+          );
+        }
+        const now = new Date().toISOString();
+        const rows: EmbeddingRow[] = items.map((x, idx) => ({
+          id: `star:${x.star.id}`,
+          vector: embedResult.vectors[idx]!,
+          metadata: {
+            starId: x.star.id,
+            contentHash: x.hash,
+            model: embedResult.model,
+            embeddedAt: now,
+          },
+        }));
+        await opts.upsert(rows);
+        embedded += items.length;
+        totalInputTokens += embedResult.inputTokens;
+        model = embedResult.model;
+        batches += 1;
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError' && opts.signal?.aborted) {
+          throw err;
+        }
+        // R52: if this looks like a payload-too-large / bad-request AND we
+        // have more than one input, halve and recurse. The kind check uses
+        // duck-typing (matches AIError without importing it — keeping core
+        // free of the @starkit/ai workspace dep).
+        const isBadRequest =
+          err !== null &&
+          typeof err === 'object' &&
+          (err as { kind?: unknown }).kind === 'bad_request';
+        if (isBadRequest && items.length > 1) {
+          const mid = Math.floor(items.length / 2);
+          await tryAttempt(items.slice(0, mid));
+          await tryAttempt(items.slice(mid));
+          return;
+        }
+        // Permanent failure for this item-set (size 1 OR non-bad_request).
+        failed += items.length;
+        for (const x of items) failedStarIds.push(x.star.id);
+        failure.record(err, String(err));
       }
+    };
 
-      const now = new Date().toISOString();
-      const rows: EmbeddingRow[] = toEmbed.map((x, idx) => ({
-        id: `star:${x.star.id}`,
-        vector: embedResult.vectors[idx]!,
-        metadata: {
-          starId: x.star.id,
-          contentHash: x.hash,
-          model: embedResult.model,
-          embeddedAt: now,
-        },
-      }));
-
-      await opts.upsert(rows);
-
-      embedded += toEmbed.length;
-      totalInputTokens += embedResult.inputTokens;
-      model = embedResult.model;
-      batches += 1;
-    } catch (err) {
-      // R20 蓝军 fix: AbortError only propagates when CALLER initiated it.
-      // Bare DOMException AbortError (from withTimeout's internal controller)
-      // is exhausted-retry transient → counts as failed like other errors.
-      // The shared callWithRetry already retried it up to maxRetries.
-      if (err instanceof Error && err.name === 'AbortError' && opts.signal?.aborted) {
-        throw err;
-      }
-      // R20 蓝军 fix: surface WHICH stars + the error context so the popup
-      // can show a meaningful "X failed: <provider msg>" instead of silent
-      // "0 embedded". The catch can fire for: callWithRetry exhausting
-      // retries on a transient, a permanent AIError (auth/bad_request), a
-      // dim-mismatch from the provider-contract sanity check, or an upsert
-      // throw. All count as this batch failing.
-      failed += toEmbed.length;
-      for (const x of toEmbed) failedStarIds.push(x.star.id);
-      // R28 fan-out: FailureRecorder handles all 3 tiers (AIError > Error
-      // > weak fallback). Non-Error throws fall to fallback path.
-      failure.record(err, String(err));
-    }
+    await tryAttempt(toEmbed);
 
     done += batchStars.length;
     opts.onProgress?.(done, total);

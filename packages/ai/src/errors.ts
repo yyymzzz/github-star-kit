@@ -70,7 +70,11 @@ function mapStatusToKind(status: number): AIErrorKind {
   if (status === 401 || status === 403) return 'auth';
   if (status === 429) return 'rate_limit';
   if (status === 408 || status === 504) return 'timeout';
-  if (status === 400 || status === 404 || status === 422) return 'bad_request';
+  // R52: 413 (Payload Too Large) added to bad_request. Surfaced by
+  // SiliconFlow / DashScope embedding endpoints when an embed batch's
+  // total JSON body exceeds their per-request size cap. embedStars uses
+  // this kind to trigger the adaptive batch-split retry path.
+  if (status === 400 || status === 404 || status === 413 || status === 422) return 'bad_request';
   if (status >= 500) return 'server';
   return 'unknown';
 }
