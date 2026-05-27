@@ -381,14 +381,28 @@ export function Manage(): JSX.Element {
 
   // ─── AI tag facets — similarly cached. Cap surface area at MAX_TAG_CHIPS
   // so 100+ unique tags don't sprawl the filter bar. ─────────────────────
+  // R55 fix: case-insensitive tag deduplication. LLM-generated aiTags arrive
+  // in inconsistent casing — "python" from one repo, "Python" from another,
+  // "TypeScript" vs "typescript" — and the prior Map used the raw string as
+  // key, surfacing both `python · 18` AND `Python · 18` in the chip row.
+  // User reported this while reviewing manage-page screenshots for CWS.
+  //
+  // Fix: lowercase + trim for the dedup key; preserve the first-seen display
+  // form so chips still read as the LLM wrote them (capitalization carries
+  // some signal — `JavaScript` is the canonical brand spelling).
   const tagFacets = useMemo(() => {
     const counts = new Map<string, number>();
+    const displays = new Map<string, string>();
     for (const s of allStars) {
       for (const tag of s.aiTags) {
-        counts.set(tag, (counts.get(tag) ?? 0) + 1);
+        const key = tag.trim().toLowerCase();
+        if (key.length === 0) continue;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+        if (!displays.has(key)) displays.set(key, tag.trim());
       }
     }
     return Array.from(counts.entries())
+      .map(([k, n]) => [displays.get(k) ?? k, n] as const)
       .sort((a, b) => b[1] - a[1])
       .slice(0, MAX_TAG_CHIPS);
   }, [allStars]);
@@ -420,9 +434,12 @@ export function Manage(): JSX.Element {
         if (!hay.includes(lowerSearch)) return false;
       }
       if (filters.tags.size > 0) {
-        // AND semantics — every selected tag must be on the star
+        // R55: case-insensitive match so clicking the `Python` chip also
+        // matches stars with `python` aiTag (LLM casing varies). AND
+        // semantics preserved — every selected tag must be on the star.
+        const lowerTags = s.aiTags.map((t) => t.trim().toLowerCase());
         for (const required of filters.tags) {
-          if (!s.aiTags.includes(required)) return false;
+          if (!lowerTags.includes(required.trim().toLowerCase())) return false;
         }
       }
       return true;
