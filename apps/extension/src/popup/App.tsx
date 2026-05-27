@@ -1492,7 +1492,22 @@ export function App(): JSX.Element {
           {(() => {
             const starCount = searchResults.filter((h) => h.kind === 'star').length;
             const codeCount = searchResults.filter((h) => h.kind === 'code').length;
-            if (starCount === 0 || codeCount === 0) return null; // No filter UI when mixed view is moot
+            // R54: show the chip group whenever the user has ANY
+            // deep-indexed code chunks in the vector store, even if the
+            // current query happened to return only one kind. Without
+            // this, a user with deep-index set up but searching for a
+            // code-only term (e.g. `useState`) saw zero feedback that
+            // their setup was working — the count breakdown gives the
+            // "you have N code hits, 0 star hits, here's how to flip"
+            // affordance. Previous gate (`if star===0 || code===0`)
+            // hid the chips for the most common all-code result.
+            //
+            // Hide only when there's no deep-index data at all (zero
+            // code chunks in the store), to avoid a degenerate chip
+            // row showing `Stars (5) · Code (0)` for non-deep-index
+            // users who'd never click Code anyway.
+            if (deepIndexedCount === 0) return null;
+            if (searchResults.length === 0) return null;
             return (
               <div
                 style={styles.searchFilterRow}
