@@ -450,20 +450,15 @@ export function App(): JSX.Element {
           // already filtered hits with null star so search results
           // weren't visibly wrong; this fix prevents the leak at root.
           onUnstar: async (deletedIds: ReadonlyArray<number>) => {
-            const idSet = new Set(deletedIds);
-            // star:N rows have predictable ids — delete directly.
+            // R51 P2 fix: replaced the prior O(N+M) list+regex scan with
+            // store-native prefix delete. For 5k stars × ~3 code chunks,
+            // the old path materialized 15k+ rows into JS heap and ran a
+            // regex per row on popup focus after un-starring — visibly
+            // janky. IndexedDBVectorStore.deleteByPrefix uses an IDB
+            // key-range cursor → O(matched) instead of O(N).
             for (const id of deletedIds) {
               await vectorStore.delete(`star:${id}`);
-            }
-            // code:N:path:idx — variable suffix per repo. ONE list()
-            // pass + per-row regex filter (O(N+M), not O(N×M)).
-            const allRows = await vectorStore.list();
-            for (const row of allRows) {
-              if (!row.id.startsWith('code:')) continue;
-              const match = /^code:(\d+):/.exec(row.id);
-              if (match && idSet.has(Number(match[1]))) {
-                await vectorStore.delete(row.id);
-              }
+              await vectorStore.deleteByPrefix(`code:${id}:`);
             }
           },
         }

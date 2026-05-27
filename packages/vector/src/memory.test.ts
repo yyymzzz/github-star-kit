@@ -234,3 +234,36 @@ describe('MemoryVectorStore — realistic-scale smoke', () => {
     expect(dt).toBeLessThan(100);
   });
 });
+
+describe('MemoryVectorStore.deleteByPrefix (R51)', () => {
+  it('deletes every row whose id starts with the prefix, returns count', async () => {
+    const s = new MemoryVectorStore();
+    await s.upsertMany([
+      row('star:1', v(1, 0)),
+      row('code:1:src/foo.ts:0', v(0, 1)),
+      row('code:1:src/foo.ts:1', v(0, 1)),
+      row('code:1:src/bar.ts:0', v(1, 1)),
+      row('code:2:src/baz.ts:0', v(1, 1)),
+      row('star:2', v(0, 1)),
+    ]);
+    const n = await s.deleteByPrefix('code:1:');
+    expect(n).toBe(3);
+    expect(await s.count()).toBe(3);
+    // The unmatched rows should still be there.
+    expect(await s.get('star:1')).not.toBeNull();
+    expect(await s.get('code:2:src/baz.ts:0')).not.toBeNull();
+    expect(await s.get('star:2')).not.toBeNull();
+  });
+
+  it('returns 0 when no rows match', async () => {
+    const s = new MemoryVectorStore();
+    await s.upsertMany([row('star:1', v(1, 0))]);
+    expect(await s.deleteByPrefix('code:')).toBe(0);
+    expect(await s.count()).toBe(1);
+  });
+
+  it('throws on empty prefix (guards against deleting whole store)', async () => {
+    const s = new MemoryVectorStore();
+    await expect(s.deleteByPrefix('')).rejects.toThrow(/non-empty/);
+  });
+});

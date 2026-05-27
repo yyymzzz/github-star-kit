@@ -112,17 +112,12 @@ export async function runScheduledSync(
       onUnstar?: (deletedIds: ReadonlyArray<number>) => Promise<void>;
     } = {
       onUnstar: async (deletedIds) => {
-        const idSet = new Set(deletedIds);
+        // R51 P2 fix: O(matched) prefix delete instead of O(N+M) list+regex.
+        // Cron-side mirrors the popup fix; both paths now share the same
+        // store-native API. See packages/vector/src/idb.ts deleteByPrefix.
         for (const id of deletedIds) {
           await vectorStore.delete(`star:${id}`);
-        }
-        const allRows = await vectorStore.list();
-        for (const row of allRows) {
-          if (!row.id.startsWith('code:')) continue;
-          const match = /^code:(\d+):/.exec(row.id);
-          if (match && idSet.has(Number(match[1]))) {
-            await vectorStore.delete(row.id);
-          }
+          await vectorStore.deleteByPrefix(`code:${id}:`);
         }
       },
     };

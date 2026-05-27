@@ -504,8 +504,13 @@ export function Manage(): JSX.Element {
     setTranslateProgress({ done: 0, total: untranslatedCount });
     setError(null);
     // R44: cancel for bulk translate (parity with popup R40).
+    // R51 P2 fix: AbortController is created here but `setActiveAbort` is
+    // deferred to INSIDE the lock callback. If withSyncLock fails to
+    // acquire (cron or popup holds it), the fast-return path skips the
+    // translate entirely — exposing a Cancel button for work that never
+    // started misleads the user (clicking it does nothing meaningful and
+    // `common.cancelled` would then race against `sync.conflict`).
     const abortCtrl = new AbortController();
-    setActiveAbort(abortCtrl);
 
     try {
       // R34 蓝军 CRITICAL #1.1: hold the sync lock for the full translate
@@ -518,6 +523,9 @@ export function Manage(): JSX.Element {
       // by sync when user clicks Translate, surface the conflict via
       // the existing sync.conflict i18n key.
       const lockOutcome = await withSyncLock(MANAGE_OWNER_ID, async () => {
+      // R51: now that we OWN the lock, the work will actually run — safe
+      // to expose the Cancel button to the user.
+      setActiveAbort(abortCtrl);
       const { starStore } = await getStores();
       const preset = AI_PRESETS[aiProvider];
       const provider = new OpenAICompatibleProvider({

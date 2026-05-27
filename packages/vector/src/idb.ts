@@ -79,6 +79,39 @@ export class IndexedDBVectorStore implements VectorStore {
   }
 
   /**
+   * R51 P2 fix: O(matched) prefix delete via IDB key-range cursor.
+   *
+   * Previous popup onUnstar did `await vectorStore.list(); for (...)
+   * regex/delete` — materialized 10k+ rows into JS heap, ran a regex per
+   * row, then issued one delete each. For 5k stars × ~3 code chunks =
+   * 15k rows, this was visibly slow on popup focus after un-starring.
+   *
+   * Key-range trick: IDB keys are sorted. `prefix` + `prefix + '￿'`
+   * brackets every id starting with `prefix` (since '￿' sorts after
+   * any code-chunk suffix). A single openCursor + cursor.delete() loop
+   * inside one transaction handles only matched rows — O(matched), no
+   * full-table scan, no JS-side heap allocation.
+   */
+  async deleteByPrefix(prefix: string): Promise<number> {
+    if (prefix.length === 0) {
+      throw new Error('deleteByPrefix: prefix must be non-empty');
+    }
+    const upper = prefix + '￿';
+    const range = IDBKeyRange.bound(prefix, upper, false, true);
+    const tx = this.db.transaction('vectors', 'readwrite');
+    const store = tx.objectStore('vectors');
+    let cursor = await store.openCursor(range);
+    let deleted = 0;
+    while (cursor) {
+      await cursor.delete();
+      deleted += 1;
+      cursor = await cursor.continue();
+    }
+    await tx.done;
+    return deleted;
+  }
+
+  /**
    * Full-scan cosine search.
    *
    * Implementation is deliberately a single round-trip into a transient

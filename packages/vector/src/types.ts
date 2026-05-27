@@ -85,6 +85,24 @@ export interface VectorStore {
    * so an Array materialization is fine and keeps the surface tiny.
    */
   list(): Promise<ReadonlyArray<VectorRow>>;
+
+  /**
+   * Delete every row whose id starts with `prefix`.
+   *
+   * Added in R51 to make un-star cleanup O(matched) instead of O(N): the
+   * popup's onUnstar callback previously did `list() + per-row regex
+   * filter`, which materializes the entire vectors store into JS memory
+   * just to drop 1-2% of the rows. At 5000+ stars × code chunks the
+   * round-trip is user-visibly slow (~1-2s). Implementations should use
+   * a key-range cursor where possible.
+   *
+   * Default implementation is provided for stores without native prefix
+   * scans (e.g. MemoryVectorStore) — callers can rely on it always being
+   * available even if some backends fall back to list+filter internally.
+   *
+   * Returns the number of rows deleted (caller can no-op if zero).
+   */
+  deleteByPrefix(prefix: string): Promise<number>;
 }
 
 /**

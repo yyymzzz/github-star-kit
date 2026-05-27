@@ -77,6 +77,27 @@ export class MemoryVectorStore implements VectorStore {
     return out;
   }
 
+  /**
+   * R51: contract-mirror of IndexedDBVectorStore.deleteByPrefix. Memory
+   * implementation is O(N) on map size but in-memory and synchronous-ish;
+   * still fine because the hot-path caller (popup onUnstar) maintains both
+   * a memory + IDB store and the savings vs the old list+regex are mostly
+   * IDB-side. Returns count of deleted rows.
+   */
+  async deleteByPrefix(prefix: string): Promise<number> {
+    if (prefix.length === 0) {
+      throw new Error('deleteByPrefix: prefix must be non-empty');
+    }
+    let deleted = 0;
+    for (const id of this.byId.keys()) {
+      if (id.startsWith(prefix)) {
+        this.byId.delete(id);
+        deleted += 1;
+      }
+    }
+    return deleted;
+  }
+
   async search(
     query: ReadonlyArray<number>,
     options: VectorSearchOptions = {}
